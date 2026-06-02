@@ -33,8 +33,6 @@ const wss    = new WebSocketServer({ server });
 
 app.use(express.static('public'));
 app.use(express.json());
-app.use('/mic',   express.static('../mic'));
-app.use('/moire', express.static('../moire'));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
@@ -49,8 +47,11 @@ function loadRouting() {
     return JSON.parse(fs.readFileSync(ROUTING_FILE, 'utf8'));
   } catch (e) {
     return {
-      'distance1/distance': { channel: 2, cc: 1, enabled: true, min: 5,  max: 400 },
-      'distance1/rate':     { channel: 3, cc: 1, enabled: true, min: 5,  max: 60  },
+      'osc/pi-hc-sr04/distance-cm': { channel: 2, cc: 1, enabled: true, min: 5,  max: 400 },
+      'osc/pi-hc-sr04/change-rate': { channel: 3, cc: 1, enabled: true, min: 0,  max: 60  },
+      'json/esp32-am2320/temp_c':   { channel: 4, cc: 1, enabled: true, min: 15, max: 25  },
+      'json/esp32-am2320/temp_f':   { channel: 4, cc: 2, enabled: true, min: 40, max: 100 },
+      'json/esp32-am2320/rh':       { channel: 4, cc: 3, enabled: true, min: 20, max: 60  },
     };
   }
 }
@@ -80,9 +81,9 @@ app.post('/api/routing/:key', (req, res) => {
 
 app.post('/api/sensor/environment', (req, res) => {
   const { temperature, humidity } = req.body;
-  broadcast({ type: 'sensor', name: 'environment', param: 'temperature',
+  broadcast({ type: 'json', device: 'json/environment/temperature', name: 'environment', param: 'temperature',
     value: temperature, source: 'adrian-pi', enabled: true, channel: 4, cc: 1, min: 15, max: 35 });
-  broadcast({ type: 'sensor', name: 'environment', param: 'humidity',
+  broadcast({ type: 'json', device: 'json/environment/humidity', name: 'environment', param: 'humidity',
     value: humidity, source: 'adrian-pi', enabled: true, channel: 4, cc: 2, min: 40, max: 100 });
   res.json({ ok: true });
 });
@@ -189,10 +190,6 @@ oscSendClients.add('127.0.0.1');
 oscSendClients.add('::1');
 oscSendClients.add('10.0.0.1');
 oscSendClients.add(os.hostname());
-oscSendClients.add('10.0.0.255');
-oscSendClients.add('192.168.0.255');
-oscSendClients.add('192.168.4.255');
-oscSendClients.add('192.168.1.255');
 
 const oscOutSocket = dgram.createSocket('udp4');
 
@@ -205,14 +202,14 @@ function sendOSCToClient(ip, address, ...args) {
 function broadcastOSC(data) {
   if (oscReceiveClients.size === 0) return;
 
-  if (data.type === 'sensor') {
+  if (data.type === 'osc' || data.type === 'json') {
     const norm = (data.min != null && data.max != null)
       ? Math.max(0, Math.min(1, (data.value - data.min) / (data.max - data.min)))
       : data.value;
     const addr = `/sensor/${data.name}/${data.param}`;
     for (const ip of oscReceiveClients) sendOSCToClient(ip, addr, parseFloat(data.value), parseFloat(norm));
 
-  } else if (data.type === 'controller' || data.type === 'midi_upstream') {
+  } else if (data.type === 'midi') {
     const dev = (data.device || 'midi').replace(/\W+/g, '_');
     if (data.msgType === 'cc') {
       const norm = data.rawValue ?? data.value / 127;
@@ -247,16 +244,15 @@ const oscInSocket = dgram.createSocket('udp4');
 oscInSocket.on('message', (buf, rinfo) => {
   const senderIp = rinfo.address.replace(/^::ffff:/, '');
 
-  const isLocal = oscSendClients.has(senderIp);
-  const isBroadcast = senderIp.endsWith('.255');
-  if (!isLocal && !isBroadcast) {
-    console.log(`OSC from unregistered IP ${senderIp} — ignored`);
+  if (!oscSendClients.has(senderIp)) {
+    console.log(`OSC from unregistered IP ${senderIp} — ignored. Toggle SEND ON to allow.`);
     return;
   }
-  
+
   const msg = parseOSCMessage(buf);
   if (!msg) return;
 
+  console.log(`OSC in from ${senderIp}: ${msg.address}`, msg.args);
 
   // Route known sensor addresses
   const parts = msg.address.split('/').filter(Boolean); // ['sensor', 'distance1', 'distance']
@@ -269,7 +265,9 @@ oscInSocket.on('message', (buf, rinfo) => {
     const route = routing[key] || {};
 
     broadcast({
-      type: 'sensor', name, param, value,
+      type: 'osc',
+      device: `osc/${name}/${param}`,
+      name, param, value,
       source: senderIp,
       channel: route.channel, cc: route.cc,
       enabled: route.enabled ?? true,
@@ -287,7 +285,8 @@ oscInSocket.on('message', (buf, rinfo) => {
     const value = msg.args[0];
 
     broadcast({
-      type: 'sensor',
+      type: 'osc',
+      device: `osc/${senderIp}${msg.address}`,
       name:  `osc-${senderIp}`,
       param: msg.address.replace(/\//g, '_').slice(1),
       value: typeof value === 'number' ? value : 0,
@@ -327,7 +326,7 @@ midiSocket.on('message', (msg, rinfo) => {
   const msgType = status & 0xF0;
   const channel = (status & 0x0F) + 1;
 
-  let decoded = { type: 'controller', device, channel, raw: midiBytes };
+  let decoded = { type: 'midi', device: `midi/${device}`, channel, raw: midiBytes };
 
   if      (msgType === 0xB0) { decoded.msgType = 'cc';        decoded.cc   = midiBytes[1]; decoded.value    = midiBytes[2]; }
   else if (msgType === 0x90) { decoded.msgType = 'noteon';    decoded.note = midiBytes[1]; decoded.velocity = midiBytes[2]; }
@@ -335,6 +334,7 @@ midiSocket.on('message', (msg, rinfo) => {
   else if (msgType === 0xE0) { decoded.msgType = 'pitchbend'; decoded.value = (midiBytes[2] << 7) | midiBytes[1]; }
 
   broadcast(decoded);
+  console.log(`CONTROLLER [${device}] Ch${channel} ${decoded.msgType}`);
 });
 
 midiSocket.bind(5006, '127.0.0.1', () => {
@@ -381,6 +381,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
+      console.log('WS message received type:', data.type);
 
       // OSC receive toggle — router sends OSC UDP to this client on port 9000
       if (data.type === 'osc_toggle_receive') {
@@ -411,7 +412,7 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      if (data.type === 'midi_upstream') {
+      if (data.type === 'midi' || data.type === 'midi_upstream') {
         wss.clients.forEach(client => {
           if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
         });
@@ -526,19 +527,20 @@ setInterval(async () => {
       const routeF  = routing['esp32-am2320/temp_f'] || {};
       const routeRH = routing['esp32-am2320/rh']     || {};
 
-      broadcast({ type: 'sensor', name: 'esp32-am2320', param: 'temp_c',
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c', name: 'esp32-am2320', param: 'temp_c',
         value: data[0].temp_c, source: 'adrian-pi',
         channel: routeC.channel, cc: routeC.cc, enabled: routeC.enabled,
         min: routeC.min, max: routeC.max });
-      broadcast({ type: 'sensor', name: 'esp32-am2320', param: 'temp_f',
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f', name: 'esp32-am2320', param: 'temp_f',
         value: data[0].temp_f, source: 'adrian-pi',
         channel: routeF.channel, cc: routeF.cc, enabled: routeF.enabled,
         min: routeF.min, max: routeF.max });
-      broadcast({ type: 'sensor', name: 'esp32-am2320', param: 'rh',
+      broadcast({ type: 'json', device: 'json/esp32-am2320/rh', name: 'esp32-am2320', param: 'rh',
         value: data[0].rh, source: 'adrian-pi',
         channel: routeRH.channel, cc: routeRH.cc, enabled: routeRH.enabled,
         min: routeRH.min, max: routeRH.max });
 
+      console.log("broadcasted Supabase data:", data[0]);
     }
   } catch (e) {
     console.error('Error fetching from Supabase:', e.message);

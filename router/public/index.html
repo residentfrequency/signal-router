@@ -194,33 +194,30 @@
       Connect to <code>wss://rf.postoccupancy.com</code> or <code>wss://10.0.0.1:3000</code><br>
       Every broadcast is a JSON object. Two types:<br><br>
 
-      <strong>sensor</strong> — physical sensor reading, full float:<br>
+      <strong>osc</strong> — physical sensor, originated as OSC UDP:<br>
       <pre>{
-  "type": "sensor",
-  "name": "esp32-am2320",
-  "param": "temp_c",
-  "value": 23.45,
-  "min": 15,
-  "max": 25
+  "type": "osc",
+  "device": "osc/pi-hc-sr04/distance-cm",
+  "value": 142.3,
+  "min": 5,
+  "max": 400
 }</pre>
 
-      <strong>midi</strong> — CC or note from any source (controller, browser app, sensor script):<br>
+      <strong>json</strong> — browser or HTTP origin, full float:<br>
       <pre>{
-  "type": "midi_upstream",
-  "device": "Teensy MIDI/ch3/cc1",
+  "type": "json",
+  "device": "json/esp32-am2320/temp_c",
+  "value": 23.45
+}</pre>
+
+      <strong>midi</strong> — MIDI controller via WebMIDI API or Pi USB:<br>
+      <pre>{
+  "type": "midi",
+  "device": "midi/Teensy MIDI",
   "msgType": "cc",
   "channel": 3,
   "cc": 1,
   "value": 64
-}</pre>
-
-      Mic and derived signals include <code>rawValue</code> with the original float:<br>
-      <pre>{
-  "type": "midi_upstream",
-  "device": "mic-192.168.0.5/centroid",
-  "msgType": "cc",
-  "value": 89,
-  "rawValue": 0.703
 }</pre>
 
       <hr class="dim">
@@ -250,11 +247,12 @@ async def listen():
     async with websockets.connect(url) as ws:
         async for msg in ws:
             data = json.loads(msg)
-            if data["type"] == "sensor":
-                print(data["name"], data["param"], data["value"])
-            elif data["type"] == "midi_upstream":
-                raw = data.get("rawValue", data["value"] / 127)
-                print(data["device"], raw)
+            if data["type"] == "osc":
+                print(data["device"], data["value"])
+            elif data["type"] == "json":
+                print(data["device"], data["value"])
+            elif data["type"] == "midi":
+                print(data["device"], data["value"] / 127)
 
 asyncio.run(listen())</pre>
 
@@ -264,12 +262,15 @@ asyncio.run(listen())</pre>
       <pre>const ws = new WebSocket('wss://rf.postoccupancy.com');
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  if (data.type === 'sensor') {
-    // data.value is full float e.g. 23.45
+  if (data.type === 'osc') {
+    // data.value is raw sensor value e.g. 142.3cm
     // normalize: (data.value - data.min) / (data.max - data.min)
   }
-  if (data.type === 'midi_upstream') {
-    // data.rawValue is 0-1 if present, data.value is 0-127
+  if (data.type === 'json') {
+    // data.value is float 0-1 already
+  }
+  if (data.type === 'midi') {
+    // data.value is 0-127, normalize: data.value / 127
   }
 };</pre>
 
@@ -413,72 +414,67 @@ void webSocketEvent(String msg) {
     function saveOSCPortState() {
       localStorage.setItem('rf-osc-port-state', JSON.stringify(oscPortState));
     }
-    function isOSCReceiving() { return oscPortState[9000]?.receive === true; }
-    function isOSCSending()   { return oscPortState[5005]?.send    === true; }
-
-    function setOSCReceive(val) {
-      if (!oscPortState[9000]) oscPortState[9000] = {};
-      oscPortState[9000].receive = val;
+    function isOSCReceiving(port) { return oscPortState[port]?.receive === true; }
+    function isOSCSending(port)   { return oscPortState[port]?.send === true; }
+    function setOSCReceive(port, val) {
+      if (!oscPortState[port]) oscPortState[port] = {};
+      oscPortState[port].receive = val;
       saveOSCPortState();
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_receive', enabled: val }));
       renderOSCPorts();
       updateOSCStatus();
     }
-
-    function setOSCSend(val) {
-      if (!oscPortState[5005]) oscPortState[5005] = {};
-      oscPortState[5005].send = val;
+    function setOSCSend(port, val) {
+      if (!oscPortState[port]) oscPortState[port] = {};
+      oscPortState[port].send = val;
       saveOSCPortState();
       if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_send', enabled: val }));
       renderOSCPorts();
       updateOSCStatus();
     }
 
-    function toggleOSCReceive() { setOSCReceive(!isOSCReceiving()); }
-    function toggleOSCSend()    { setOSCSend(!isOSCSending()); }
+    function toggleOSCReceive(port) { setOSCReceive(port, !isOSCReceiving(port)); }
+    function toggleOSCSend(port)    { setOSCSend(port,    !isOSCSending(port));   }
 
     function renderOSCPorts() {
       const table = document.getElementById('osc-ports-table');
       while (table.rows.length > 1) table.deleteRow(1);
 
-      const recv = isOSCReceiving();
-      const send = isOSCSending();
+      const ports = [9000]; // port 9000 — router OSC broadcast
 
-      // Row 1 — port 9000, router → this client
-      const row1 = table.insertRow();
-      row1.innerHTML = `
-        <td>:9000 (receive)</td>
-        <td><button class="btn ${recv ? 'on' : 'off'}"
-          onclick="toggleOSCReceive()">${recv ? 'ON' : 'OFF'}</button></td>
-        <td class="dim">—</td>
-        <td class="dim">${recv ? 'receiving from router' : ''}</td>
-      `;
-
-      // Row 2 — port 5005, this client → router
-      const row2 = table.insertRow();
-      row2.innerHTML = `
-        <td>:5005 (send)</td>
-        <td class="dim">—</td>
-        <td><button class="btn ${send ? 'on' : 'off'}"
-          onclick="toggleOSCSend()">${send ? 'ON' : 'OFF'}</button></td>
-        <td class="dim">${send ? 'sending to router' : ''}</td>
-      `;
+      for (const port of ports) {
+        const recv = isOSCReceiving(port);
+        const send = isOSCSending(port);
+        const row  = table.insertRow();
+        row.innerHTML = `
+          <td>:${port}</td>
+          <td><button class="btn ${recv ? 'on' : 'off'}"
+            onclick="toggleOSCReceive(${port})">${recv ? 'ON' : 'OFF'}</button></td>
+          <td><button class="btn ${send ? 'on' : 'off'}"
+            onclick="toggleOSCSend(${port})">${send ? 'ON' : 'OFF'}</button></td>
+          <td class="dim">
+            ${recv && send ? 'recv :9000 · send → :5005' :
+              recv ? 'receiving from router :9000' :
+              send ? 'sending → 10.0.0.1:5005' : ''}
+          </td>
+        `;
+      }
     }
 
     function updateOSCStatus() {
-      const recv = isOSCReceiving();
-      const send = isOSCSending();
+      const recv = isOSCReceiving(9000);
+      const send = isOSCSending(9000);
       document.getElementById('osc-status').textContent =
-        recv && send ? 'OSC :9000 in · :5005 out' :
-        recv         ? 'OSC :9000 in' :
-        send         ? 'OSC :5005 out' : 'OSC off';
+        recv && send ? 'OSC :9000 recv+send' :
+        recv ? 'OSC :9000 recv' :
+        send ? 'OSC :5005 send' : 'OSC off';
     }
 
     // ═══════════════════════════════════════════════════
     // WebMIDI
     // ═══════════════════════════════════════════════════
 
-    // Render OSC ports on load
+    // Render OSC ports on load (state already loaded above)
     renderOSCPorts();
     updateOSCStatus();
 
@@ -611,7 +607,7 @@ void webSocketEvent(String msg) {
       const channel = (status & 0x0F) + 1;
 
       let decoded = {
-        type: 'midi_upstream',
+        type: 'midi',
         device: portName,
         source: MY_IP || 'unknown',
         channel,
@@ -793,25 +789,30 @@ void webSocketEvent(String msg) {
     // ═══════════════════════════════════════════════════
 
     function handleIncomingSignal(data) {
-      if (data.type === 'sensor') {
-        const key     = `${data.name}/${data.param}`;
+      if (data.type === 'osc' || data.type === 'json') {
+        // Use device field if present (new format), fall back to name/param (legacy)
+        const key     = data.device ?? `${data.name}/${data.param}`;
         const safeKey = key.replace(/[\/\s]+/g, '-');
         const rawEl   = document.getElementById(`raw-${safeKey}`);
         const midiEl  = document.getElementById(`midi-${safeKey}`);
-        if (rawEl)  rawEl.textContent  = typeof data.value === 'number' ? data.value.toFixed(2) : data.value;
-        if (midiEl && data.enabled) {
-          const cc = normalize(data.value, data.min ?? 0, data.max ?? 127);
-          midiEl.textContent = Math.round(cc);
+        if (rawEl) rawEl.textContent = typeof data.value === 'number' ? data.value.toFixed(4) : data.value;
+
+        // Normalize: json is already 0-1, osc uses min/max range
+        const norm = data.type === 'json'
+          ? Math.max(0, Math.min(1, data.value ?? 0))
+          : normalize(data.value, data.min ?? 0, data.max ?? 1);
+
+        if (midiEl && data.enabled !== false) {
+          midiEl.textContent = Math.round(norm * 127);
         }
-        if (data.enabled && isDeviceMidiOn(key)) {
-          if (!(key in smoothed)) smoothed[key] = data.value;
-          smoothed[key] = 0.3 * data.value + 0.7 * smoothed[key];
-          const cc = normalize(smoothed[key], data.min ?? 0, data.max ?? 127);
-          sendCC(data.channel, data.cc, cc);
+        if (data.enabled !== false && isDeviceMidiOn(key)) {
+          if (!(key in smoothed)) smoothed[key] = norm;
+          smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
+          sendCC(data.channel ?? 1, data.cc ?? 1, smoothed[key] * 127);
         }
       }
 
-      if (data.type === 'controller' || data.type === 'midi_upstream') {
+      if (data.type === 'midi' || data.type === 'controller' || data.type === 'midi_upstream') {
         ensureDeviceRow(data);
         updateDeviceRow(data);
         if (isDeviceMidiOn(data.device) && data.raw) sendMidi(data.raw);
@@ -877,8 +878,9 @@ void webSocketEvent(String msg) {
       const osPart   = meta.os       ? ` (${meta.os})`       : '';
       const connPart = meta.connType ? ` · ${meta.connType}` : '';
       const tabPart  = meta.tabCount > 1 ? ` · ${meta.tabCount} tabs` : '';
+      const oscPart  = meta.oscReceive ? ' · OSC :9000' : '';
       const mePart   = isMe ? ' · this client' : '';
-      h3.textContent = `${ip}${osPart}${connPart}${tabPart}${mePart}`;
+      h3.textContent = `${ip}${osPart}${connPart}${tabPart}${oscPart}${mePart}`;
     }
 
     // ═══════════════════════════════════════════════════
@@ -906,16 +908,9 @@ void webSocketEvent(String msg) {
         const os = detectOS();
 
         // Sync OSC state from server
-        if (!oscPortState[9000]) oscPortState[9000] = {};
-        if (data.oscReceive !== undefined) {
-          if (!oscPortState[9000]) oscPortState[9000] = {};
-          oscPortState[9000].receive = data.oscReceive;
-        }
-        if (data.oscSend !== undefined) {
-          if (!oscPortState[5005]) oscPortState[5005] = {};
-          oscPortState[5005].send = data.oscSend;
-        }
-        saveOSCPortState();
+        if (data.oscReceive !== undefined) oscReceiveOn = data.oscReceive;
+        if (data.oscSend    !== undefined) oscSendOn    = data.oscSend;
+        saveOSCState();
         renderOSCPorts();
         updateOSCStatus();
 

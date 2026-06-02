@@ -138,18 +138,17 @@
 
   setInterval(() => {
     if (ws.readyState !== 1 || !MY_IP || !running) return;
-    const base = `mic-${MY_IP}`;
+    const base = `json/mic-${MY_IP}`;
     [
-      { device: `${base}/rms`,      value: signals.rms,      cc: 1 },
-      { device: `${base}/bass`,     value: signals.bass,     cc: 2 },
-      { device: `${base}/mid`,      value: signals.mid,      cc: 3 },
-      { device: `${base}/high`,     value: signals.high,     cc: 4 },
-      { device: `${base}/centroid`, value: signals.centroid, cc: 5 },
-    ].forEach(({ device, value, cc }) => {
+      { device: `${base}/rms`,      value: signals.rms      },
+      { device: `${base}/bass`,     value: signals.bass     },
+      { device: `${base}/mid`,      value: signals.mid      },
+      { device: `${base}/high`,     value: signals.high     },
+      { device: `${base}/centroid`, value: signals.centroid },
+    ].forEach(({ device, value }) => {
       ws.send(JSON.stringify({
         type: 'midi_upstream', device,
         source: MY_IP, msgType: 'cc', channel: 7, cc,
-        rawValue: value,          // original float 0-1
         value: Math.round(Math.max(0, Math.min(1, value)) * 127),
         raw: [0xB6, cc, Math.round(value * 127)]
       }));

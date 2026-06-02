@@ -5,7 +5,7 @@ After=network.target router.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/home/pi/projects/theremin
+WorkingDirectory=/home/pi/signal-router/sensors/distance
 ExecStart=/usr/bin/python3 -u main.py
 Restart=always
 RestartSec=5

@@ -1,0 +1,2 @@
+# Requires system dependency: sudo apt install libasound2-dev -y
+python-rtmidi>=1.5.0

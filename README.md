@@ -50,7 +50,7 @@ The Pi acts as a hub. Every signal — environmental sensor readings, MIDI CC va
 ## Project structure
 
 ```
-pi-projects/
+signal-router/
   router/           Node.js WebSocket/OSC signal router
     server.js
     package.json
@@ -99,9 +99,9 @@ pip3 install python-osc RPi.GPIO --break-system-packages
 
 ```bash
 cd ~
-git clone https://github.com/residentfrequency/pi-projects.git
-mv pi-projects pi-projects
-cd pi-projects/router
+git clone https://github.com/residentfrequency/signal-router.git
+mv signal-router signal-router
+cd signal-router/router
 npm install
 ```
 
@@ -110,7 +110,7 @@ npm install
 The router polls Supabase for ESP32 sensor data. Create a `.env` file in `router/`:
 
 ```bash
-nano ~/pi-projects/router/.env
+nano ~/signal-router/router/.env
 ```
 
 ```
@@ -123,7 +123,7 @@ SUPABASE_ANON_KEY=your-anon-key
 The router runs HTTPS. It first tries to use the Tailscale certificate, then falls back to a self-signed cert. Generate a self-signed cert for local use:
 
 ```bash
-cd ~/pi-projects/router
+cd ~/signal-router/router
 openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes \
   -subj "/CN=adrian-pi" \
   -addext "subjectAltName=DNS:adrian-pi,DNS:adrian-pi.local,DNS:localhost,IP:127.0.0.1,IP:10.0.0.1,IP:192.168.4.1"
@@ -134,16 +134,16 @@ openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -node
 Copy service files from `pi-setup/systemd/` to `/etc/systemd/system/`:
 
 ```bash
-sudo cp ~/pi-projects/pi-setup/systemd/router.service /etc/systemd/system/
-sudo cp ~/pi-projects/pi-setup/systemd/theremin.service /etc/systemd/system/
+sudo cp ~/signal-router/pi-setup/systemd/router.service /etc/systemd/system/
+sudo cp ~/signal-router/pi-setup/systemd/theremin.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable router theremin
 sudo systemctl start router theremin
 ```
 
-**router.service** runs `node server.js` from `~/pi-projects/router/`
+**router.service** runs `node server.js` from `~/signal-router/router/`
 
-**theremin.service** runs `python3 -u main.py` from `~/pi-projects/theremin/`
+**theremin.service** runs `python3 -u main.py` from `~/signal-router/theremin/`
 
 Check status:
 ```bash
@@ -156,7 +156,7 @@ sudo systemctl status theremin
 Copy scripts to `/usr/local/bin/` and make executable:
 
 ```bash
-sudo cp ~/pi-projects/pi-setup/scripts/* /usr/local/bin/
+sudo cp ~/signal-router/pi-setup/scripts/* /usr/local/bin/
 sudo chmod +x /usr/local/bin/rf-status
 sudo chmod +x /usr/local/bin/wifi-mode
 sudo chmod +x /usr/local/bin/ap-mode
@@ -424,7 +424,7 @@ X-GNOME-Autostart-enabled=true
 
 ### Deploy script
 
-A `deploy` script on your Mac copies files from the local `pi-projects/` folder to the Pi via SCP. It lives in `~/bin/deploy` (not `/usr/local/bin` — macOS SIP prevents writing there).
+A `deploy` script on your Mac copies files from the local `signal-router/` folder to the Pi via SCP. It lives in `~/bin/deploy` (not `/usr/local/bin` — macOS SIP prevents writing there).
 
 Setup:
 
@@ -439,12 +439,12 @@ source ~/.zshrc
 Usage:
 
 ```bash
-deploy                                # rsync all changed files in pi-projects/
+deploy                                # rsync all changed files in signal-router/
 deploy router/public/moire5.html      # copy one file
 deploy router/server.js               # copy server.js and restart router
 ```
 
-Run from any subfolder — `deploy moire5.html` from inside `pi-projects/moire/` resolves to the correct path automatically.
+Run from any subfolder — `deploy moire5.html` from inside `signal-router/moire/` resolves to the correct path automatically.
 
 The deploy script uses `pi@adrian-pi` (Tailscale MagicDNS) as the default target — works whether connected via ethernet, WiFi, or remotely.
 
@@ -573,8 +573,8 @@ e.g. /sensor/kinect/x 0.42
 | `/etc/cloudflared/config.yml` | Cloudflare tunnel config |
 | `/etc/hostapd/hostapd.conf` | AP mode SSID and password |
 | `/etc/NetworkManager/dispatcher.d/98-eth0-reconnect` | Auto-reconnect ethernet on WiFi up |
-| `~/pi-projects/router/.env` | Supabase credentials (not in repo) |
-| `~/pi-projects/router/routing.json` | Signal routing config (not in repo) |
+| `~/signal-router/router/.env` | Supabase credentials (not in repo) |
+| `~/signal-router/router/routing.json` | Signal routing config (not in repo) |
 | `~/.cloudflared/cert.pem` | Cloudflare auth certificate |
 | `/usr/local/bin/rf-status` | Status script |
 | `/usr/local/bin/wifi-mode` | WiFi management script |

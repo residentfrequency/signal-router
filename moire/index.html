@@ -445,14 +445,19 @@
   }
 
   function signalKeyFor(data) {
-    if (data.type === 'sensor') return `${data.name}/${data.param}`;
-    if (data.type === 'midi_upstream' || data.type === 'controller') {
+    // type:'json' — device name already includes json/ prefix e.g. json/moire/phase
+    if (data.type === 'json') return data.device || null;
+    // type:'osc' — device name includes osc/ prefix e.g. osc/pi-hc-sr04/distance-cm
+    if (data.type === 'osc') return data.device || `osc/${data.name}/${data.param}`;
+    // type:'midi' — build key from device+channel+cc/note
+    if (data.type === 'midi' || data.type === 'midi_upstream' || data.type === 'controller') {
       const dev = data.device || 'unknown';
-      if (dev.includes('/')) return dev;
-      if (data.msgType === 'cc')      return `${dev}/ch${data.channel}/cc${data.cc}`;
+      if (data.msgType === 'cc')
+        return `${dev}/ch${data.channel}/cc${data.cc}`;
       if (data.msgType === 'noteon' || data.msgType === 'noteoff')
-                                       return `${dev}/ch${data.channel}/n${data.note}`;
-      if (data.msgType === 'pitchbend') return `${dev}/ch${data.channel}/pb`;
+        return `${dev}/ch${data.channel}/n${data.note}`;
+      if (data.msgType === 'pitchbend')
+        return `${dev}/ch${data.channel}/pb`;
       return dev;
     }
     return null;
@@ -614,11 +619,16 @@
       if (!key) return;
 
       let norm;
-      if (data.type === 'sensor') {
-        norm = data.min != null
+      if (data.type === 'json') {
+        // float 0-1 already
+        norm = Math.max(0, Math.min(1, data.value ?? 0));
+      } else if (data.type === 'osc') {
+        // normalize using min/max if present
+        norm = data.min != null && data.max != null
           ? Math.max(0, Math.min(1, (data.value - data.min) / (data.max - data.min)))
-          : data.value;
+          : Math.max(0, Math.min(1, data.value ?? 0));
       } else {
+        // midi — value is 0-127, rawValue is 0-1 if present
         const raw = data.rawValue ?? (data.value / 127);
         norm = Math.max(0, Math.min(1, raw));
       }
@@ -633,7 +643,7 @@
       // Router MIDI handlers — mirror of handleDirectMidi
       // Only fires if NOT already handled by direct MIDI
       if (!directMidiKeys.has(key) &&
-          (data.type === 'controller' || data.type === 'midi_upstream') &&
+          (data.type === 'midi' || data.type === 'controller' || data.type === 'midi_upstream') &&
           data.msgType === 'cc' && key !== angleSrcKey && key !== rateSrcKey) {
 
         const sc = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
@@ -748,17 +758,16 @@
   setInterval(() => {
     if (ws.readyState !== 1 || !MY_IP) return;
     [
-      { device: 'moire/phase',        value: derived.phase,        cc: 1 },
-      { device: 'moire/interference', value: derived.interference, cc: 2 },
-      { device: 'moire/beating',      value: derived.beating,      cc: 3 },
-      { device: 'moire/rate',         value: derived.rateOfChange, cc: 4 },
-    ].forEach(({ device, value, cc }) => {
+      { device: 'json/moire/phase',        value: derived.phase        },
+      { device: 'json/moire/interference', value: derived.interference },
+      { device: 'json/moire/beating',      value: derived.beating      },
+      { device: 'json/moire/rate',         value: derived.rateOfChange },
+    ].forEach(({ device, value }) => {
       ws.send(JSON.stringify({
-        type: 'midi_upstream', device,
-        source: MY_IP, msgType: 'cc', channel: 6, cc,
-        rawValue: value,
-        value: Math.round(Math.max(0, Math.min(1, value)) * 127),
-        raw: [0xB5, cc, Math.round(value * 127)]
+        type: 'json',
+        device,         // e.g. json/moire/phase
+        source: MY_IP,
+        value           // float 0-1
       }));
     });
   }, 50);

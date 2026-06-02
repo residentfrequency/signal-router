@@ -1,0 +1,15 @@
+[Unit]
+Description=Resident Frequency MIDI Controller Forwarding
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 -u main.py
+WorkingDirectory=/home/pi/signal-router/controllers
+Restart=always
+RestartSec=5
+User=pi
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
