@@ -33,6 +33,8 @@ const wss    = new WebSocketServer({ server });
 
 app.use(express.static('public'));
 app.use(express.json());
+app.use('/mic',   express.static('../mic'));
+app.use('/moire', express.static('../moire'));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
