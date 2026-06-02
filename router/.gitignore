@@ -1,9 +1,0 @@
-.env
-node_modules/
-*.crt
-*.pem
-*.key
-routing.json
-drafts/
-tunnel-id.txt
-*.scd

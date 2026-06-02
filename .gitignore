@@ -8,7 +8,7 @@ node_modules/
 __pycache__/
 *.pyc
 EOF
-
+package-lock.json
 drafts/
 drafts/*
 tunnel-id.txt
