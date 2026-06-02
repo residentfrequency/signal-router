@@ -790,25 +790,31 @@ void webSocketEvent(String msg) {
 
     function handleIncomingSignal(data) {
       if (data.type === 'osc' || data.type === 'json') {
-        // Use device field if present (new format), fall back to name/param (legacy)
+        // Use device field as key (includes type prefix e.g. osc/pi-hc-sr04/distance-cm)
         const key     = data.device ?? `${data.name}/${data.param}`;
         const safeKey = key.replace(/[\/\s]+/g, '-');
         const rawEl   = document.getElementById(`raw-${safeKey}`);
         const midiEl  = document.getElementById(`midi-${safeKey}`);
         if (rawEl) rawEl.textContent = typeof data.value === 'number' ? data.value.toFixed(4) : data.value;
 
-        // Normalize: json is already 0-1, osc uses min/max range
-        const norm = data.type === 'json'
-          ? Math.max(0, Math.min(1, data.value ?? 0))
-          : normalize(data.value, data.min ?? 0, data.max ?? 1);
+        // Look up routing config for this signal's min/max/channel/cc
+        const route = routing[key] || {};
+        const min   = route.min ?? data.min ?? 0;
+        const max   = route.max ?? data.max ?? 1;
 
-        if (midiEl && data.enabled !== false) {
+        // Normalize to 0-1
+        // json signals (mic, moire, esp32) are already 0-1 if no min/max in routing
+        // osc signals (distance sensor) have physical units needing min/max scaling
+        const norm = (max === min) ? 0
+          : Math.max(0, Math.min(1, (data.value - min) / (max - min)));
+
+        if (midiEl && route.enabled !== false) {
           midiEl.textContent = Math.round(norm * 127);
         }
-        if (data.enabled !== false && isDeviceMidiOn(key)) {
+        if (route.enabled !== false && isDeviceMidiOn(key) && route.channel && route.cc) {
           if (!(key in smoothed)) smoothed[key] = norm;
           smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
-          sendCC(data.channel ?? 1, data.cc ?? 1, smoothed[key] * 127);
+          sendCC(route.channel, route.cc, smoothed[key] * 127);
         }
       }
 

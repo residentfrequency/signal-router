@@ -33,8 +33,6 @@ const wss    = new WebSocketServer({ server });
 
 app.use(express.static('public'));
 app.use(express.json());
-app.use('/mic',   express.static('../mic'));
-app.use('/moire', express.static('../moire'));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
@@ -419,7 +417,14 @@ wss.on('connection', (ws, req) => {
           if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
         });
         broadcastOSC(data);
-        console.log(`UPSTREAM [${data.device}] Ch${data.channel} ${data.msgType}`);
+      }
+
+      // json — browser-originated float signals (mic, moire derived, etc.)
+      if (data.type === 'json') {
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
+        });
+        broadcastOSC(data);
       }
 
       if (data.type === 'client_meta') {

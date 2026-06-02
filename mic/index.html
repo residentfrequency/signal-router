@@ -147,10 +147,10 @@
       { device: `${base}/centroid`, value: signals.centroid },
     ].forEach(({ device, value }) => {
       ws.send(JSON.stringify({
-        type: 'midi_upstream', device,
-        source: MY_IP, msgType: 'cc', channel: 7, cc,
-        value: Math.round(Math.max(0, Math.min(1, value)) * 127),
-        raw: [0xB6, cc, Math.round(value * 127)]
+        type: 'json',
+        device,
+        source: MY_IP,
+        value   // float 0-1
       }));
     });
   }, 50);
