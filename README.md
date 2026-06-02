@@ -4,6 +4,11 @@ A portable signal routing system for live art-tech performance. Runs on a Raspbe
 
 Built by [Resident Frequency](https://residentfrequency.github.io), a Seattle-based art-tech-music collective.
 
+Demo sites:
+- Router: [https://rf.postoccupancy.com](https://rf.postoccupancy.com)
+- Moire Pattern Generator: [https://rf.postoccupancy.com/moire](https://rf.postoccupancy.com/moire)
+- Browser Mic: [https://rf.postoccupancy.com/mic](https://rf.postoccupancy.com/mic)
+
 ---
 
 ## What it does
