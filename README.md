@@ -56,8 +56,13 @@ signal-router/
     package.json
     public/
       index.html    Router UI
-  theremin/         Python sensor script
+  sensors/
+    distance/       HC-SR04 ultrasonic distance sensor
+      main.py
+      requirements.txt
+  controllers/      USB MIDI controller forwarding
     main.py
+    requirements.txt  
   moire/            Generative visual sketch
     index.html
   mic/              Microphone audio analysis
@@ -92,7 +97,7 @@ node --version
 
 ```bash
 sudo apt install python3-pip python3-gpiozero -y
-pip3 install sensors/requirements.txt --break-system-packages
+pip3 install -r sensors/distance/requirements.txt --break-system-packages
 
 # Optional - for enabling MIDI controllers via Pi's USB port, these are required:
 sudo apt install libasound2-dev -y
@@ -140,20 +145,26 @@ Copy service files from `pi-setup/systemd/` to `/etc/systemd/system/`:
 
 ```bash
 sudo cp ~/signal-router/pi-setup/systemd/router.service /etc/systemd/system/
-sudo cp ~/signal-router/pi-setup/systemd/theremin.service /etc/systemd/system/
+sudo cp ~/signal-router/pi-setup/systemd/distance.service /etc/systemd/system/
+sudo cp ~/signal-router/pi-setup/systemd/controllers.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable router theremin
-sudo systemctl start router theremin
+sudo systemctl enable router distance
+sudo systemctl start router distance
+sudo systemctl enable router controllers
+sudo systemctl start router controllers
 ```
 
 **router.service** runs `node server.js` from `~/signal-router/router/`
 
-**theremin.service** runs `python3 -u main.py` from `~/signal-router/theremin/`
+**distance.service** runs `python3 -u main.py` from `~/signal-router/sensors/distance/`
+
+**controllers.service** runs `python3 -u main.py from ~/signal-router/controllers/` (optional)
+
 
 Check status:
 ```bash
 sudo systemctl status router
-sudo systemctl status theremin
+sudo systemctl status distance
 ```
 
 ### 8. Shell scripts
@@ -166,7 +177,7 @@ sudo chmod +x /usr/local/bin/rf-status
 sudo chmod +x /usr/local/bin/wifi-mode
 sudo chmod +x /usr/local/bin/ap-mode
 sudo chmod +x /usr/local/bin/router-log
-sudo chmod +x /usr/local/bin/theremin-log
+sudo chmod +x /usr/local/bin/distance-log
 sudo chmod +x /usr/local/bin/kiosk
 ```
 
@@ -348,7 +359,7 @@ Example output:
 ```
 === Resident Frequency Status ===
 
-✓ Sensor (theremin)
+✓ Sensor (distance)
 ✓ Router
 ✓ Cloudflare tunnel
 
@@ -388,15 +399,15 @@ router-log
 
 Runs: `sudo journalctl -u router -f`
 
-### `theremin-log`
+### `distance-log`
 
 Tails the sensor script log in real time.
 
 ```bash
-theremin-log
+distance-log
 ```
 
-Runs: `sudo journalctl -u theremin -f`
+Runs: `sudo journalctl -u distance -f`
 
 ### `kiosk`
 
@@ -445,7 +456,7 @@ Usage:
 
 ```bash
 deploy                                # rsync all changed files in signal-router/
-deploy router/public/moire5.html      # copy one file
+deploy moire/index.html               # copy one file
 deploy router/server.js               # copy server.js and restart router
 ```
 
@@ -589,7 +600,8 @@ e.g. /sensor/kinect/x 0.42
 | File | Purpose |
 |------|---------|
 | `/etc/systemd/system/router.service` | Router autostart |
-| `/etc/systemd/system/theremin.service` | Sensor script autostart |
+| `/etc/systemd/system/distance.service` | Distance sensor script autostart |
+| `/etc/systemd/system/controllers.service` | USB MIDI Controllers script autostart |
 | `/etc/cloudflared/config.yml` | Cloudflare tunnel config |
 | `/etc/hostapd/hostapd.conf` | AP mode SSID and password |
 | `/etc/NetworkManager/dispatcher.d/98-eth0-reconnect` | Auto-reconnect ethernet on WiFi up |
@@ -657,7 +669,7 @@ ps aux | grep node
 VS Code Remote SSH is the most common cause — kills it with `pkill -9 -f vscode-server`.
 
 **Distance sensor showing dashes in router**
-OSC packets from `main.py` use subnet broadcast which doesn't loop back on Linux. Check `main.py` sends to both broadcast and `127.0.0.1`. Verify OSC inbound whitelist in server.js includes broadcast addresses.
+OSC packets from `sensors/distance/main.py` use subnet broadcast which doesn't loop back on Linux. Check `main.py` sends to both broadcast and `127.0.0.1`. Verify OSC inbound whitelist in server.js includes broadcast addresses.
 
 **`wifi-mode` reports success but SSID unchanged**
 Network not in scan range. Run `sudo nmcli dev wifi rescan` then retry. Check signal strength with `sudo nmcli dev wifi list`.

@@ -3,9 +3,10 @@ echo "=== Resident Frequency Status ==="
 echo ""
 
 # Services
-systemctl is-active --quiet theremin  && echo "✓ Sensor (theremin)"  || echo "✗ Sensor (theremin) — run: sudo systemctl start theremin"
-systemctl is-active --quiet router    && echo "✓ Router"              || echo "✗ Router — run: sudo systemctl start router"
-systemctl is-active --quiet cloudflared && echo "✓ Cloudflare tunnel" || echo "✗ Cloudflare tunnel (optional)"
+systemctl is-active --quiet distance    && echo "✓ Distance sensor (distance)" || echo "✗ Distance sensor — run: sudo systemctl start distance"
+systemctl is-active --quiet controllers && echo "✓ MIDI controllers (controllers)" || true
+systemctl is-active --quiet router      && echo "✓ Router" || echo "✗ Router — run: sudo systemctl start router"
+systemctl is-active --quiet cloudflared && echo "✓ Cloudflare tunnel" || echo "  Cloudflare tunnel not running (optional — run: sudo systemctl start cloudflared)"
 
 echo ""
 echo "=== Network ==="
@@ -20,7 +21,6 @@ else
     SSID=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
     WIFI_IP=$(ip addr show wlan0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
     if [ -n "$SSID" ] && [ -n "$WIFI_IP" ]; then
-        # Test actual internet connectivity
         ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 && INTERNET="internet ✓" || INTERNET="no internet ✗"
         echo "WiFi: CLIENT — $SSID ($WIFI_IP) — $INTERNET"
     elif [ -n "$SSID" ]; then
@@ -54,7 +54,6 @@ fi
 echo ""
 echo "=== Connect at ==="
 
-# Only show URLs that are actually reachable
 WIFI_IP=$(ip addr show wlan0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
 ETH_IP=$(ip addr show eth0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
 TAILSCALE_IP=$(tailscale ip 2>/dev/null | head -1)
@@ -67,10 +66,10 @@ echo "  https://adrian-pi.tailc1f637.ts.net:3000  (Tailscale full hostname)"
 
 echo ""
 echo "By IP:"
-[ "$ETH_CARRIER" = "1" ]   && echo "  Ethernet:  https://10.0.0.1:3000  (share with anyone on the switch)"
-[ -n "$WIFI_IP" ]           && echo "  WiFi:      https://$WIFI_IP:3000  (share with anyone on $ACTUAL_SSID)"
-[ -n "$TAILSCALE_IP" ]      && echo "  Tailscale: https://$TAILSCALE_IP:3000  (remote, Tailscale required)"
-[ -n "$TAILSCALE_IP" ]      && echo "  Public:    https://rf.postoccupancy.com  (anyone, internet required)"
+[ "$ETH_CARRIER" = "1" ] && echo "  Ethernet:  https://10.0.0.1:3000  (share with anyone on the switch)"
+[ -n "$WIFI_IP" ]         && echo "  WiFi:      https://$WIFI_IP:3000  (share with anyone on $ACTUAL_SSID)"
+[ -n "$TAILSCALE_IP" ]    && echo "  Tailscale: https://$TAILSCALE_IP:3000  (remote, Tailscale required)"
+[ -n "$TAILSCALE_IP" ]    && echo "  Public:    https://rf.postoccupancy.com  (anyone, internet required)"
 
 echo ""
 echo "=== Memory ==="
@@ -96,14 +95,17 @@ CLOUDFLARED_PID=$(pgrep cloudflared)
 if [ -n "$CLOUDFLARED_PID" ]; then
   CF_MB=$(ps -p $CLOUDFLARED_PID -o rss= | awk '{printf "%.0f", $1/1024}')
   echo "✓ cloudflared PID $CLOUDFLARED_PID — ${CF_MB}MB"
-else
-  echo "  cloudflared not running (optional — run: sudo systemctl start cloudflared)"
 fi
 
-THEREMIN_PID=$(pgrep -f "main.py")
-if [ -n "$THEREMIN_PID" ]; then
-  T_MB=$(ps -p $THEREMIN_PID -o rss= | awk '{printf "%.0f", $1/1024}')
-  echo "✓ Sensor (main.py) PID $THEREMIN_PID — ${T_MB}MB"
-else
-  echo "✗ Sensor not running — run: sudo systemctl start theremin"
-fi
+# Distance sensor and controllers — both run as main.py, distinguish by working dir
+while IFS= read -r pid; do
+  DIR=$(readlink /proc/$pid/cwd 2>/dev/null)
+  MB=$(ps -p $pid -o rss= 2>/dev/null | awk '{printf "%.0f", $1/1024}')
+  if echo "$DIR" | grep -q "sensors/distance"; then
+    echo "✓ Distance sensor (main.py) PID $pid — ${MB}MB"
+  elif echo "$DIR" | grep -q "controllers"; then
+    echo "✓ MIDI controllers (main.py) PID $pid — ${MB}MB"
+  else
+    echo "✓ main.py PID $pid — ${MB}MB ($DIR)"
+  fi
+done < <(pgrep -f "main.py")
