@@ -92,7 +92,12 @@ node --version
 
 ```bash
 sudo apt install python3-pip python3-gpiozero -y
-pip3 install python-osc RPi.GPIO --break-system-packages
+pip3 install sensors/requirements.txt --break-system-packages
+
+# Optional - for enabling MIDI controllers via Pi's USB port, these are required:
+sudo apt install libasound2-dev -y
+pip3 install -r controllers/requirements.txt --break-system-packages
+
 ```
 
 ### 4. Clone the repo
@@ -482,34 +487,41 @@ Three connection modes:
 
 ## Signal format
 
-All signals broadcast as WebSocket JSON. Two message types:
+All signals broadcast as WebSocket JSON. Three message types reflecting the origin format of the signal:
 
-**sensor** — physical measurement, full float:
+**osc** — physical sensor, originated as OSC UDP (distance sensor, Kinect, any OSC sender on port 5005):
 ```json
 {
-  "type": "sensor",
-  "name": "esp32-am2320",
-  "param": "temp_c",
-  "value": 23.45,
-  "min": 15,
-  "max": 25
+  "type": "osc",
+  "device": "osc/pi-hc-sr04/distance-cm",
+  "value": 142.3,
+  "source": "127.0.0.1"
 }
 ```
 
-**midi_upstream** — MIDI CC or note from any source:
+**json** — browser or HTTP origin, full float 0–1 (mic Web Audio analysis, moire derived signals, ESP32 via Supabase):
 ```json
 {
-  "type": "midi_upstream",
-  "device": "Teensy MIDI/ch3/cc1",
+  "type": "json",
+  "device": "json/mic-192.168.0.5/rms",
+  "value": 0.847,
+  "source": "192.168.0.5"
+}
+```
+
+**midi** — MIDI controller via browser WebMIDI API (IAC Driver, loopMIDI, USB controllers) or Pi USB via controllers/main.py:
+```json
+{
+  "type": "midi",
+  "device": "midi/Teensy MIDI",
   "msgType": "cc",
   "channel": 3,
   "cc": 1,
-  "value": 64,
-  "rawValue": 0.504
+  "value": 64
 }
 ```
 
-`rawValue` carries the original float (0–1) where meaningful — mic analysis signals, moire derived signals. For hardware MIDI controllers it is redundant with `value / 127`.
+The `device` field includes the type as a prefix — `osc/`, `json/`, or `midi/` — making the origin format visible in the router UI signal table.
 
 ### Receiving in Python
 
@@ -520,10 +532,12 @@ async def listen():
     async with websockets.connect('wss://rf.postoccupancy.com') as ws:
         async for msg in ws:
             data = json.loads(msg)
-            if data['type'] == 'sensor':
-                print(data['name'], data['param'], data['value'])
-            elif data['type'] == 'midi_upstream':
-                print(data['device'], data.get('rawValue', data['value'] / 127))
+            if data['type'] == 'osc':
+                print(data['device'], data['value'])
+            elif data['type'] == 'json':
+                print(data['device'], data['value'])   # already 0-1
+            elif data['type'] == 'midi':
+                print(data['device'], data['value'] / 127)
 
 asyncio.run(listen())
 ```
@@ -534,11 +548,15 @@ asyncio.run(listen())
 const ws = new WebSocket('wss://rf.postoccupancy.com');
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  if (data.type === 'sensor') {
-    const norm = (data.value - data.min) / (data.max - data.min);
+  if (data.type === 'osc') {
+    // data.value is raw sensor value e.g. 142.3cm
+    // normalize using routing min/max
   }
-  if (data.type === 'midi_upstream') {
-    const norm = data.rawValue ?? data.value / 127;
+  if (data.type === 'json') {
+    // data.value is float 0-1 already
+  }
+  if (data.type === 'midi') {
+    // data.value is 0-127, normalize: data.value / 127
   }
 };
 ```
@@ -547,16 +565,18 @@ ws.onmessage = (event) => {
 
 Every connected browser client automatically receives all signals as OSC UDP on port 9000. Open an OSC listener on port 9000 in TouchDesigner, VCV Rack, or Max for Live.
 
-OSC address format:
+OSC address format mirrors the device field:
 ```
-/sensor/esp32-am2320/temp_c   23.45  0.845
+/osc/pi-hc-sr04/distance-cm   142.3  0.369
+/json/mic-192_168_0_5/rms     0.847  0.847
 /midi/Teensy_MIDI/ch3/cc1     0.504  64
 ```
 
-Sensor messages carry raw float + normalized 0–1. MIDI CC messages carry normalized 0–1 + raw 0–127.
+osc and json messages carry raw value + normalized 0–1. midi CC messages carry normalized 0–1 + raw 0–127.
 
 To send OSC to the router, send UDP to port 5005 (local network only — not available via Cloudflare tunnel, use Tailscale for remote OSC). Toggle SEND ON in the OSC ports table to register your IP as an allowed sender.
 
+OSC address format for inbound:
 ```
 /sensor/name/param value
 e.g. /sensor/kinect/x 0.42

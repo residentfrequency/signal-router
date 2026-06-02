@@ -33,6 +33,8 @@ const wss    = new WebSocketServer({ server });
 
 app.use(express.static('public'));
 app.use(express.json());
+app.use('/mic',   express.static('../mic'));
+app.use('/moire', express.static('../moire'));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
@@ -46,13 +48,7 @@ function loadRouting() {
   try {
     return JSON.parse(fs.readFileSync(ROUTING_FILE, 'utf8'));
   } catch (e) {
-    return {
-      'osc/pi-hc-sr04/distance-cm': { channel: 2, cc: 1, enabled: true, min: 5,  max: 400 },
-      'osc/pi-hc-sr04/change-rate': { channel: 3, cc: 1, enabled: true, min: 0,  max: 60  },
-      'json/esp32-am2320/temp_c':   { channel: 4, cc: 1, enabled: true, min: 15, max: 25  },
-      'json/esp32-am2320/temp_f':   { channel: 4, cc: 2, enabled: true, min: 40, max: 100 },
-      'json/esp32-am2320/rh':       { channel: 4, cc: 3, enabled: true, min: 20, max: 60  },
-    };
+    return {};  // no hardcoded defaults — all routing configured in UI
   }
 }
 
@@ -69,22 +65,19 @@ app.get('/api/routing', (req, res) => res.json(routing));
 
 app.post('/api/routing/:key', (req, res) => {
   const key = decodeURIComponent(req.params.key);
-  if (routing[key]) {
-    Object.assign(routing[key], req.body);
-    saveRouting();
-    broadcast({ type: 'routing', routing });
-    res.json({ ok: true, routing: routing[key] });
-  } else {
-    res.status(404).json({ error: 'unknown key' });
-  }
+  if (!routing[key]) routing[key] = {};  // create if not exists
+  Object.assign(routing[key], req.body);
+  saveRouting();
+  broadcast({ type: 'routing', routing });
+  res.json({ ok: true, routing: routing[key] });
 });
 
 app.post('/api/sensor/environment', (req, res) => {
   const { temperature, humidity } = req.body;
-  broadcast({ type: 'json', device: 'json/environment/temperature', name: 'environment', param: 'temperature',
-    value: temperature, source: 'adrian-pi', enabled: true, channel: 4, cc: 1, min: 15, max: 35 });
-  broadcast({ type: 'json', device: 'json/environment/humidity', name: 'environment', param: 'humidity',
-    value: humidity, source: 'adrian-pi', enabled: true, channel: 4, cc: 2, min: 40, max: 100 });
+  broadcast({ type: 'json', device: 'json/environment/temperature',
+    value: temperature, source: 'adrian-pi' });
+  broadcast({ type: 'json', device: 'json/environment/humidity',
+    value: humidity, source: 'adrian-pi' });
   res.json({ ok: true });
 });
 
@@ -127,38 +120,26 @@ function buildOSCMessage(address, ...args) {
 }
 
 function parseOSCMessage(buf) {
-  // Parse a raw OSC UDP packet — returns { address, args } or null
   try {
     let offset = 0;
-
-    // Read null-terminated string padded to 4 bytes
     function readString() {
       const end = buf.indexOf(0, offset);
       const str = buf.slice(offset, end).toString('ascii');
       offset = Math.ceil((end + 1) / 4) * 4;
       return str;
     }
-
     const address  = readString();
-    const typeTags = readString(); // e.g. ",ff" or ",fi"
+    const typeTags = readString();
     const args     = [];
-
     for (let i = 1; i < typeTags.length; i++) {
       const tag = typeTags[i];
-      if (tag === 'f') {
-        args.push(buf.readFloatBE(offset)); offset += 4;
-      } else if (tag === 'i') {
-        args.push(buf.readInt32BE(offset)); offset += 4;
-      } else if (tag === 's') {
-        args.push(readString());
-      } else if (tag === 'd') {
-        args.push(buf.readDoubleBE(offset)); offset += 8;
-      }
+      if      (tag === 'f') { args.push(buf.readFloatBE(offset));  offset += 4; }
+      else if (tag === 'i') { args.push(buf.readInt32BE(offset));   offset += 4; }
+      else if (tag === 's') { args.push(readString()); }
+      else if (tag === 'd') { args.push(buf.readDoubleBE(offset));  offset += 8; }
     }
     return { address, args };
-  } catch (e) {
-    return null;
-  }
+  } catch (e) { return null; }
 }
 
 // ─── SuperCollider OSC sender ─────────────────────────────────────────────────
@@ -166,9 +147,7 @@ function parseOSCMessage(buf) {
 const scSocket = dgram.createSocket('udp4');
 
 function sendToSC(address, ...args) {
-  try {
-    scSocket.send(buildOSCMessage(address, ...args), 57110, '127.0.0.1');
-  } catch (e) {}
+  try { scSocket.send(buildOSCMessage(address, ...args), 57110, '127.0.0.1'); } catch (e) {}
 }
 
 // ─── OSC client registry ──────────────────────────────────────────────────────
@@ -182,10 +161,9 @@ function sendToSC(address, ...args) {
 const OSC_OUT_PORT = 9000;
 const OSC_IN_PORT  = 5005;
 
-const oscReceiveClients = new Set(); // router → client UDP on port 9000
-const oscSendClients    = new Set(); // client → router UDP on port 5005 (whitelist)
+const oscReceiveClients = new Set();
+const oscSendClients    = new Set();
 
-// Pi-local addresses always allowed to send inbound OSC
 oscSendClients.add('127.0.0.1');
 oscSendClients.add('::1');
 oscSendClients.add('10.0.0.1');
@@ -194,19 +172,18 @@ oscSendClients.add(os.hostname());
 const oscOutSocket = dgram.createSocket('udp4');
 
 function sendOSCToClient(ip, address, ...args) {
-  try {
-    oscOutSocket.send(buildOSCMessage(address, ...args), OSC_OUT_PORT, ip);
-  } catch (e) {}
+  try { oscOutSocket.send(buildOSCMessage(address, ...args), OSC_OUT_PORT, ip); } catch (e) {}
 }
 
 function broadcastOSC(data) {
   if (oscReceiveClients.size === 0) return;
 
   if (data.type === 'osc' || data.type === 'json') {
-    const norm = (data.min != null && data.max != null)
+    // Use device field as OSC address, normalize if min/max available
+    const addr = `/${data.device}`;
+    const norm = (data.min != null && data.max != null && data.max !== data.min)
       ? Math.max(0, Math.min(1, (data.value - data.min) / (data.max - data.min)))
-      : data.value;
-    const addr = `/sensor/${data.name}/${data.param}`;
+      : Math.max(0, Math.min(1, data.value ?? 0));
     for (const ip of oscReceiveClients) sendOSCToClient(ip, addr, parseFloat(data.value), parseFloat(norm));
 
   } else if (data.type === 'midi') {
@@ -233,11 +210,6 @@ function broadcast(data) {
 }
 
 // ─── OSC inbound listener — raw dgram so we get sender IP ────────────────────
-//
-// Replaces osc-js for inbound — gives us rinfo.address to check whitelist.
-// Accepts OSC from whitelisted IPs only.
-// Pi-local addresses (127.0.0.1, 10.0.0.1) always accepted.
-// Remote IPs added to whitelist when browser sends osc_toggle_send: true.
 
 const oscInSocket = dgram.createSocket('udp4');
 
@@ -252,21 +224,18 @@ oscInSocket.on('message', (buf, rinfo) => {
   const msg = parseOSCMessage(buf);
   if (!msg) return;
 
-  console.log(`OSC in from ${senderIp}: ${msg.address}`, msg.args);
-
-  // Route known sensor addresses
-  const parts = msg.address.split('/').filter(Boolean); // ['sensor', 'distance1', 'distance']
+  const parts = msg.address.split('/').filter(Boolean);
 
   if (parts[0] === 'sensor' && parts.length >= 3) {
     const name  = parts[1];
     const param = parts[2];
     const value = msg.args[0];
-    const key   = `${name}/${param}`;
+    const key   = `osc/${name}/${param}`;   // matches routing.json key format
     const route = routing[key] || {};
 
     broadcast({
       type: 'osc',
-      device: `osc/${name}/${param}`,
+      device: key,
       name, param, value,
       source: senderIp,
       channel: route.channel, cc: route.cc,
@@ -274,21 +243,16 @@ oscInSocket.on('message', (buf, rinfo) => {
       min: route.min, max: route.max
     });
 
-    // Forward to SuperCollider
     sendToSC(msg.address, ...msg.args);
 
   } else {
-    // Unknown OSC address — broadcast as-is with sender IP as source
-    // This handles arbitrary VCV / TouchDesigner / Max OSC output
-    const name  = parts.slice(0, -1).join('/') || msg.address;
-    const param = parts[parts.length - 1] || 'value';
+    // Unknown OSC address — broadcast as-is
     const value = msg.args[0];
+    const key   = `osc/${senderIp}${msg.address}`;
 
     broadcast({
       type: 'osc',
-      device: `osc/${senderIp}${msg.address}`,
-      name:  `osc-${senderIp}`,
-      param: msg.address.replace(/\//g, '_').slice(1),
+      device: key,
       value: typeof value === 'number' ? value : 0,
       source: senderIp,
       enabled: true
@@ -302,7 +266,7 @@ oscInSocket.bind(OSC_IN_PORT, '0.0.0.0', () => {
   console.log(`OSC inbound listening on port ${OSC_IN_PORT}`);
 });
 
-// ─── MIDI UDP receiver — from main.py on port 5006 ───────────────────────────
+// ─── MIDI UDP receiver — from controllers/main.py on port 5006 ───────────────
 
 const controllerRouting = {};
 const midiSocket        = dgram.createSocket('udp4');
@@ -334,7 +298,6 @@ midiSocket.on('message', (msg, rinfo) => {
   else if (msgType === 0xE0) { decoded.msgType = 'pitchbend'; decoded.value = (midiBytes[2] << 7) | midiBytes[1]; }
 
   broadcast(decoded);
-  console.log(`CONTROLLER [${device}] Ch${channel} ${decoded.msgType}`);
 });
 
 midiSocket.bind(5006, '127.0.0.1', () => {
@@ -352,8 +315,6 @@ wss.on('connection', (ws, req) => {
 
   if (!connectionsByIp.has(clientIp)) connectionsByIp.set(clientIp, new Set());
   connectionsByIp.get(clientIp).add(ws);
-
-  console.log(`Browser connected from ${clientIp}, unique IPs: ${connectionsByIp.size}`);
 
   const net = getNetworkMode();
   ws.send(JSON.stringify({
@@ -381,50 +342,45 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
-      console.log('WS message received type:', data.type);
 
-      // OSC receive toggle — router sends OSC UDP to this client on port 9000
       if (data.type === 'osc_toggle_receive') {
         if (data.enabled) {
           oscReceiveClients.add(clientIp);
-          console.log(`OSC receive ON for ${clientIp} → port ${OSC_OUT_PORT}`);
         } else {
           oscReceiveClients.delete(clientIp);
-          console.log(`OSC receive OFF for ${clientIp}`);
         }
         broadcastClientStats();
         return;
       }
 
-      // OSC send toggle — allow/deny this client's IP to send OSC inbound on port 5005
       if (data.type === 'osc_toggle_send') {
         if (data.enabled) {
           oscSendClients.add(clientIp);
-          console.log(`OSC send ON for ${clientIp} → listening on port ${OSC_IN_PORT}`);
         } else {
-          // Never remove Pi-local addresses
           if (clientIp !== '127.0.0.1' && clientIp !== '10.0.0.1') {
             oscSendClients.delete(clientIp);
-            console.log(`OSC send OFF for ${clientIp}`);
           }
         }
         broadcastClientStats();
         return;
       }
 
-      if (data.type === 'midi' || data.type === 'midi_upstream') {
+      // midi — from browser WebMIDI (IAC Driver, loopMIDI, USB controllers via browser)
+      if (data.type === 'midi') {
         wss.clients.forEach(client => {
           if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
         });
         broadcastOSC(data);
+        return;
       }
 
-      // json — browser-originated float signals (mic, moire derived, etc.)
+      // json — browser-originated float signals (mic, moire derived, esp32 via Supabase)
       if (data.type === 'json') {
         wss.clients.forEach(client => {
           if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
         });
         broadcastOSC(data);
+        return;
       }
 
       if (data.type === 'client_meta') {
@@ -442,8 +398,6 @@ wss.on('connection', (ws, req) => {
     if (connectionsByIp.get(clientIp)?.size === 0) {
       connectionsByIp.delete(clientIp);
       oscReceiveClients.delete(clientIp);
-      // Don't remove from oscSendClients on disconnect —
-      // VCV/TD may still be sending OSC even if browser closed
     }
     broadcastClientStats();
   });
@@ -530,24 +484,22 @@ setInterval(async () => {
     if (error) { console.error('Supabase error:', error.message); return; }
 
     if (data?.[0]) {
-      const routeC  = routing['esp32-am2320/temp_c'] || {};
-      const routeF  = routing['esp32-am2320/temp_f'] || {};
-      const routeRH = routing['esp32-am2320/rh']     || {};
+      const routeC  = routing['json/esp32-am2320/temp_c'] || {};
+      const routeF  = routing['json/esp32-am2320/temp_f'] || {};
+      const routeRH = routing['json/esp32-am2320/rh']     || {};
 
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c', name: 'esp32-am2320', param: 'temp_c',
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c',
         value: data[0].temp_c, source: 'adrian-pi',
         channel: routeC.channel, cc: routeC.cc, enabled: routeC.enabled,
         min: routeC.min, max: routeC.max });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f', name: 'esp32-am2320', param: 'temp_f',
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f',
         value: data[0].temp_f, source: 'adrian-pi',
         channel: routeF.channel, cc: routeF.cc, enabled: routeF.enabled,
         min: routeF.min, max: routeF.max });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/rh', name: 'esp32-am2320', param: 'rh',
+      broadcast({ type: 'json', device: 'json/esp32-am2320/rh',
         value: data[0].rh, source: 'adrian-pi',
         channel: routeRH.channel, cc: routeRH.cc, enabled: routeRH.enabled,
         min: routeRH.min, max: routeRH.max });
-
-      console.log("broadcasted Supabase data:", data[0]);
     }
   } catch (e) {
     console.error('Error fetching from Supabase:', e.message);

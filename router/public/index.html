@@ -739,6 +739,7 @@ void webSocketEvent(String msg) {
 
       if (!(signalKey in deviceMidi)) setDeviceMidi(signalKey, true);
       const midiOn = isDeviceMidiOn(signalKey);
+      const route  = routing[signalKey] || {};
 
       const row = table.insertRow();
       row.id = rowId;
@@ -747,10 +748,18 @@ void webSocketEvent(String msg) {
         <td class="dim">${signalKey}</td>
         <td class="val" id="raw-device-${safeKey}">--</td>
         <td class="val" id="midi-device-${safeKey}">--</td>
-        <td><input type="number" min="1" max="16" value="${data.channel ?? 1}" disabled></td>
-        <td><input type="number" min="0" max="127" value="${data.cc ?? data.note ?? 0}" disabled></td>
-        <td><input type="number" disabled placeholder="—"></td>
-        <td><input type="number" disabled placeholder="—"></td>
+        <td><input type="number" min="1" max="16"
+          value="${route.channel ?? data.channel ?? ''}" placeholder="—"
+          onchange="updateRouting('${signalKey}', 'channel', +this.value)"></td>
+        <td><input type="number" min="0" max="127"
+          value="${route.cc ?? data.cc ?? data.note ?? ''}" placeholder="—"
+          onchange="updateRouting('${signalKey}', 'cc', +this.value)"></td>
+        <td><input type="number" placeholder="—"
+          value="${route.min ?? ''}"
+          onchange="updateRouting('${signalKey}', 'min', +this.value)"></td>
+        <td><input type="number" placeholder="—"
+          value="${route.max ?? ''}"
+          onchange="updateRouting('${signalKey}', 'max', +this.value)"></td>
         <td>
           <button class="btn ${midiOn ? 'on' : 'off'}"
             id="midi-toggle-${safeKey}"
@@ -790,27 +799,17 @@ void webSocketEvent(String msg) {
 
     function handleIncomingSignal(data) {
       if (data.type === 'osc' || data.type === 'json') {
-        // Use device field as key (includes type prefix e.g. osc/pi-hc-sr04/distance-cm)
         const key     = data.device ?? `${data.name}/${data.param}`;
-        const safeKey = key.replace(/[\/\s]+/g, '-');
-        const rawEl   = document.getElementById(`raw-${safeKey}`);
-        const midiEl  = document.getElementById(`midi-${safeKey}`);
-        if (rawEl) rawEl.textContent = typeof data.value === 'number' ? data.value.toFixed(4) : data.value;
-
-        // Look up routing config for this signal's min/max/channel/cc
-        const route = routing[key] || {};
-        const min   = route.min ?? data.min ?? 0;
-        const max   = route.max ?? data.max ?? 1;
-
-        // Normalize to 0-1
-        // json signals (mic, moire, esp32) are already 0-1 if no min/max in routing
-        // osc signals (distance sensor) have physical units needing min/max scaling
-        const norm = (max === min) ? 0
+        const route   = routing[key] || {};
+        const min     = route.min ?? data.min ?? 0;
+        const max     = route.max ?? data.max ?? 1;
+        const norm    = (max === min) ? 0
           : Math.max(0, Math.min(1, (data.value - min) / (max - min)));
 
-        if (midiEl && route.enabled !== false) {
-          midiEl.textContent = Math.round(norm * 127);
-        }
+        // Create a row if not in routing and not already shown
+        if (!routing[key]) ensureJsonRow(data, key);
+        updateJsonRow(key, data.value, Math.round(norm * 127));
+
         if (route.enabled !== false && isDeviceMidiOn(key) && route.channel && route.cc) {
           if (!(key in smoothed)) smoothed[key] = norm;
           smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
@@ -818,11 +817,70 @@ void webSocketEvent(String msg) {
         }
       }
 
-      if (data.type === 'midi' || data.type === 'controller' || data.type === 'midi_upstream') {
+      if (data.type === 'midi') {
         ensureDeviceRow(data);
         updateDeviceRow(data);
         if (isDeviceMidiOn(data.device) && data.raw) sendMidi(data.raw);
       }
+    }
+
+    // Creates an editable row for json/osc signals not yet in routing config
+    function ensureJsonRow(data, key) {
+      const source    = data.source || 'unknown';
+      const sectionId = `section-${source.replace(/\W+/g, '-')}`;
+      let section = document.getElementById(sectionId);
+      if (!section) {
+        section = createSignalSection(source);
+        document.getElementById('signals-container').appendChild(section);
+      }
+      const table = document.getElementById(`signals-${source.replace(/\W+/g, '-')}`);
+      if (!table) return;
+
+      const safeKey = key.replace(/\W+/g, '-');
+      const rowId   = `row-json-${safeKey}`;
+      if (document.getElementById(rowId)) return;
+
+      if (!(key in deviceMidi)) setDeviceMidi(key, true);
+      const midiOn = isDeviceMidiOn(key);
+      const enc    = encodeURIComponent(key);
+
+      const row = table.insertRow();
+      row.id = rowId;
+      row.innerHTML = `
+        <td>
+          <button class="btn on" id="server-toggle-json-${safeKey}"
+            onclick="toggleServerRoute('${key}')">ON</button>
+        </td>
+        <td class="dim">${key}</td>
+        <td class="val" id="raw-json-${safeKey}">--</td>
+        <td class="val" id="midi-json-${safeKey}">--</td>
+        <td><input type="number" min="1" max="16" placeholder="—"
+          onchange="updateRouting('${key}', 'channel', +this.value)"></td>
+        <td><input type="number" min="0" max="127" placeholder="—"
+          onchange="updateRouting('${key}', 'cc', +this.value)"></td>
+        <td><input type="number" placeholder="—"
+          onchange="updateRouting('${key}', 'min', +this.value)"></td>
+        <td><input type="number" placeholder="—"
+          onchange="updateRouting('${key}', 'max', +this.value)"></td>
+        <td>
+          <button class="btn ${midiOn ? 'on' : 'off'}"
+            id="midi-toggle-json-${safeKey}"
+            onclick="toggleDeviceMidi('${key}', 'json-${safeKey}')">
+            ${midiOn ? 'ON' : 'OFF'}
+          </button>
+        </td>
+      `;
+    }
+
+    function updateJsonRow(key, rawValue, midiValue) {
+      const safeKey = key.replace(/\W+/g, '-');
+      // Check routing row first, then json row
+      const rawEl  = document.getElementById(`raw-${safeKey}`) ||
+                     document.getElementById(`raw-json-${safeKey}`);
+      const midiEl = document.getElementById(`midi-${safeKey}`) ||
+                     document.getElementById(`midi-json-${safeKey}`);
+      if (rawEl)  rawEl.textContent  = typeof rawValue === 'number' ? rawValue.toFixed(4) : rawValue;
+      if (midiEl) midiEl.textContent = midiValue;
     }
 
     // ═══════════════════════════════════════════════════
@@ -865,8 +923,8 @@ void webSocketEvent(String msg) {
           <th style="width:22%">SIGNAL</th>
           <th style="width:9%">RAW</th>
           <th style="width:9%">MIDI</th>
-          <th style="width:6%">CH</th>
-          <th style="width:6%">CC</th>
+          <th style="width:8%">CH</th>
+          <th style="width:8%">CC</th>
           <th style="width:7%">MIN</th>
           <th style="width:7%">MAX</th>
           <th style="width:6%">OUT</th>

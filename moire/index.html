@@ -450,7 +450,7 @@
     // type:'osc' — device name includes osc/ prefix e.g. osc/pi-hc-sr04/distance-cm
     if (data.type === 'osc') return data.device || `osc/${data.name}/${data.param}`;
     // type:'midi' — build key from device+channel+cc/note
-    if (data.type === 'midi' || data.type === 'midi_upstream' || data.type === 'controller') {
+    if (data.type === 'midi') {
       const dev = data.device || 'unknown';
       if (data.msgType === 'cc')
         return `${dev}/ch${data.channel}/cc${data.cc}`;
@@ -643,7 +643,7 @@
       // Router MIDI handlers — mirror of handleDirectMidi
       // Only fires if NOT already handled by direct MIDI
       if (!directMidiKeys.has(key) &&
-          (data.type === 'midi' || data.type === 'controller' || data.type === 'midi_upstream') &&
+          (data.type === 'midi') &&
           data.msgType === 'cc' && key !== angleSrcKey && key !== rateSrcKey) {
 
         const sc = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
