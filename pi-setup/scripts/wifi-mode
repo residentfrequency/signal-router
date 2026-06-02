@@ -1,0 +1,71 @@
+#!/bin/bash
+if [ -z "$1" ]; then
+  echo "Usage: wifi-mode <SSID> [password]"
+  echo ""
+  echo "Currently connected to:"
+  nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2
+  echo ""
+  echo "Visible networks:"
+  sudo nmcli dev wifi list | awk 'NR>1 {print $3}' | sort -u
+  exit 0
+fi
+
+SSID="$1"
+PASSWORD="$2"
+
+echo "Switching to WiFi client mode..."
+sudo systemctl stop hostapd 2>/dev/null
+sudo systemctl stop dnsmasq 2>/dev/null
+sudo nmcli dev set wlan0 managed yes
+
+# Disconnect current wifi first
+sudo nmcli dev disconnect wlan0 2>/dev/null
+sleep 1
+
+# Rescan so we have fresh results
+sudo nmcli dev wifi rescan 2>/dev/null
+sleep 2
+
+# Check if network is visible
+if ! sudo nmcli dev wifi list | grep -q "\"$SSID\""; then
+  echo "WARNING: '$SSID' not found in scan results."
+  echo "Visible networks:"
+  sudo nmcli dev wifi list | grep -v '^$' | awk 'NR>1 {print "  " $3}'
+  echo ""
+  echo "Trying anyway..."
+fi
+
+# Check if already saved
+if nmcli con show | grep -q "^$SSID "; then
+  echo "Known network — connecting..."
+  sudo nmcli con up "$SSID" ifname wlan0
+else
+  echo "New network — adding..."
+  if [ -z "$PASSWORD" ]; then
+    read -s -p "Password for '$SSID': " PASSWORD
+    echo ""
+  fi
+  sudo nmcli con add type wifi ifname wlan0 \
+    con-name "$SSID" ssid "$SSID" \
+    wifi-sec.key-mgmt wpa-psk \
+    wifi-sec.psk "$PASSWORD" \
+    ipv4.method auto 2>/dev/null || true
+  sudo nmcli con up "$SSID"
+fi
+
+# Wait and verify
+sleep 4
+ACTUAL_SSID=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
+ACTUAL_IP=$(ip addr show wlan0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+
+if [ "$ACTUAL_SSID" = "$SSID" ] && [ -n "$ACTUAL_IP" ]; then
+  echo "✓ Connected to '$SSID' at $ACTUAL_IP"
+else
+  echo "✗ Connection failed."
+  echo "  Expected: $SSID"
+  echo "  Got:      $ACTUAL_SSID ($ACTUAL_IP)"
+  exit 1
+fi
+
+# Bring up ethernet
+sudo nmcli con up "rf-ethernet" 2>/dev/null && echo "✓ Ethernet ready at 10.0.0.1" || echo "  Ethernet not connected (no cable)"

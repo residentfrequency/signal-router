@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RF · mic</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #000; overflow: hidden; font-family: 'Courier New', monospace; color: #fff; }
+    #canvas-container { position: fixed; inset: 0; }
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.5em; padding: 0.9em 1em; z-index: 20; pointer-events: none;
+    }
+    .btn {
+      pointer-events: all; background: #000;
+      border: 1px solid rgba(255,255,255,0.2); color: rgba(255,255,255,0.45);
+      font-family: 'Courier New', monospace; font-size: 0.58em;
+      letter-spacing: 0.14em; padding: 0.35em 0.8em; cursor: pointer;
+      text-transform: uppercase; transition: all 0.12s;
+    }
+    .btn.active { background: #fff; color: #000; border-color: #fff; }
+    .btn:hover  { border-color: rgba(255,255,255,0.6); color: rgba(255,255,255,0.8); }
+    #start-overlay {
+      position: fixed; inset: 0; background: #000;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 1em; z-index: 100;
+    }
+    #start-btn {
+      background: #000; border: 1px solid rgba(255,255,255,0.3);
+      color: rgba(255,255,255,0.5); font-family: 'Courier New', monospace;
+      font-size: 0.7em; letter-spacing: 0.3em; padding: 0.8em 2em;
+      cursor: pointer; text-transform: uppercase;
+    }
+    #start-btn:hover { color: #fff; border-color: #fff; }
+    #start-note {
+      color: rgba(255,255,255,0.2); font-size: 0.5em;
+      letter-spacing: 0.15em; text-transform: uppercase;
+      max-width: 400px; text-align: center; line-height: 1.8em;
+    }
+    #hud {
+      position: fixed; bottom: 1.2em; left: 1.2em;
+      color: rgba(255,255,255,0.2); font-size: 0.52em;
+      letter-spacing: 0.12em; line-height: 2.1em;
+      text-transform: uppercase; pointer-events: none;
+    }
+    #hud span { color: rgba(255,255,255,0.55); }
+    #signals {
+      position: fixed; bottom: 1.2em; right: 1.2em;
+      color: rgba(255,255,255,0.2); font-size: 0.52em;
+      letter-spacing: 0.1em; line-height: 2em;
+      text-transform: uppercase; text-align: right; pointer-events: none;
+    }
+    #signals span { color: rgba(255,255,255,0.45); }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="start-overlay">
+    <button id="start-btn" onclick="startMic()">ENABLE MICROPHONE</button>
+    <div id="start-note">tab must stay visible · mic stays on this device · allow mic access when chrome asks</div>
+  </div>
+  <div id="topbar">
+    <button class="btn active" onclick="setView(0)">WAVEFORM</button>
+    <button class="btn"        onclick="setView(1)">SPECTRUM</button>
+    <button class="btn"        onclick="setView(2)">SPECTROGRAM</button>
+  </div>
+  <div id="hud">
+    <div>DEVICE <span id="hud-device">--</span></div>
+    <div>RMS &nbsp;&nbsp;<span id="hud-rms">--</span></div>
+    <div>PEAK &nbsp;<span id="hud-peak">--</span></div>
+    <div>WS &nbsp;&nbsp;&nbsp;<span id="ws-val">--</span></div>
+  </div>
+  <div id="signals">
+    <div>RMS &nbsp;&nbsp;&nbsp;&nbsp;<span id="sig-rms">--</span></div>
+    <div>BASS &nbsp;&nbsp;&nbsp;<span id="sig-bass">--</span></div>
+    <div>MID &nbsp;&nbsp;&nbsp;&nbsp;<span id="sig-mid">--</span></div>
+    <div>HIGH &nbsp;&nbsp;&nbsp;<span id="sig-high">--</span></div>
+    <div>CENTROID <span id="sig-centroid">--</span></div>
+  </div>
+
+  <script>
+  let view  = 0;
+  let MY_IP = null;
+  let running = false;
+
+  let analyser  = null;
+  let audioCtx  = null;
+  let waveArray = null;
+  let specArray = null;
+
+  const signals = { rms: 0, bass: 0, mid: 0, high: 0, centroid: 0 };
+  let peakHold = 0;
+
+  function setView(v) {
+    view = v;
+    document.querySelectorAll('.btn').forEach((b, i) => b.classList.toggle('active', i === v));
+  }
+
+  // ── Mic init ──────────────────────────────────────
+
+  function startMic() {
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(stream => {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const src = audioCtx.createMediaStreamSource(stream);
+        analyser  = audioCtx.createAnalyser();
+        analyser.fftSize               = 2048;
+        analyser.smoothingTimeConstant = 0.8;
+        src.connect(analyser);
+        waveArray = new Float32Array(analyser.fftSize);
+        specArray = new Uint8Array(analyser.frequencyBinCount);
+        running   = true;
+        document.getElementById('start-overlay').style.display = 'none';
+      })
+      .catch(err => {
+        document.getElementById('start-note').textContent = 'mic access denied: ' + err.message;
+      });
+  }
+
+  // ── WebSocket ─────────────────────────────────────
+
+  const host = location.host || 'adrian-pi.tailc1f637.ts.net:3000';
+  const ws   = new WebSocket(`wss://${host}`);
+  ws.onopen  = () => { document.getElementById('ws-val').textContent = 'connected'; };
+  ws.onclose = () => { document.getElementById('ws-val').textContent = 'disconnected'; };
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+      if (data.type === 'client_info') {
+        MY_IP = data.ip;
+        document.getElementById('hud-device').textContent = MY_IP;
+      }
+    } catch(e) {}
+  };
+
+  setInterval(() => {
+    if (ws.readyState !== 1 || !MY_IP || !running) return;
+    const base = `mic-${MY_IP}`;
+    [
+      { device: `${base}/rms`,      value: signals.rms,      cc: 1 },
+      { device: `${base}/bass`,     value: signals.bass,     cc: 2 },
+      { device: `${base}/mid`,      value: signals.mid,      cc: 3 },
+      { device: `${base}/high`,     value: signals.high,     cc: 4 },
+      { device: `${base}/centroid`, value: signals.centroid, cc: 5 },
+    ].forEach(({ device, value, cc }) => {
+      ws.send(JSON.stringify({
+        type: 'midi_upstream', device,
+        source: MY_IP, msgType: 'cc', channel: 7, cc,
+        rawValue: value,          // original float 0-1
+        value: Math.round(Math.max(0, Math.min(1, value)) * 127),
+        raw: [0xB6, cc, Math.round(value * 127)]
+      }));
+    });
+  }, 50);
+
+  // ── Analysis helpers ──────────────────────────────
+
+  function bandEnergy(specData, minHz, maxHz) {
+    if (!audioCtx) return 0;
+    const nyquist = audioCtx.sampleRate / 2;
+    const minI = Math.floor(minHz / nyquist * specData.length);
+    const maxI = Math.ceil(maxHz  / nyquist * specData.length);
+    let sum = 0, count = 0;
+    for (let i = minI; i <= maxI && i < specData.length; i++) { sum += specData[i]; count++; }
+    return count > 0 ? (sum / count) / 255 : 0;
+  }
+
+  function spectralCentroid(specData) {
+    if (!audioCtx) return 0;
+    const nyquist = audioCtx.sampleRate / 2;
+    let weightedSum = 0, totalAmp = 0;
+    for (let i = 1; i < specData.length; i++) {
+      const freq = (i / specData.length) * nyquist;
+      const amp  = specData[i] / 255;
+      weightedSum += freq * amp;
+      totalAmp    += amp;
+    }
+    if (totalAmp < 0.001) return 0; // silence — no centroid
+    const centroidHz = weightedSum / totalAmp;
+    // Normalize on log scale 20Hz–20kHz → 0–1
+    return Math.max(0, Math.min(1,
+      (Math.log10(Math.max(centroidHz, 20)) - Math.log10(20)) /
+      (Math.log10(20000) - Math.log10(20))
+    ));
+  }
+
+  // ── P5 sketch ─────────────────────────────────────
+
+  new p5((p) => {
+    let spectroBuffer = null;
+
+    p.setup = () => {
+      p.createCanvas(p.windowWidth, p.windowHeight).parent('canvas-container');
+      p.colorMode(p.HSB, 360, 100, 100, 100);
+      p.frameRate(30);
+    };
+    p.windowResized = () => { p.resizeCanvas(p.windowWidth, p.windowHeight); spectroBuffer = null; };
+
+    function drawWaveform() {
+      p.background(0);
+      const cy = p.height / 2;
+      const h  = p.height * 0.45;
+
+      p.noStroke();
+      p.fill(140, 40, 30, 15);
+      p.rect(0, cy - signals.rms * h * 3, p.width, signals.rms * h * 6);
+
+      p.stroke(255, 0, 80, 12); p.strokeWeight(0.5);
+      p.line(0, cy, p.width, cy);
+
+      p.stroke(0, 0, 100, 25); p.strokeWeight(0.5);
+      p.line(0, cy - peakHold * h * 3, p.width, cy - peakHold * h * 3);
+      p.line(0, cy + peakHold * h * 3, p.width, cy + peakHold * h * 3);
+
+      // Centroid indicator — vertical line showing spectral center of mass
+      const centroidX = signals.centroid * p.width;
+      p.stroke(40, 80, 90, 40); p.strokeWeight(1);
+      p.line(centroidX, 0, centroidX, p.height);
+      p.noStroke(); p.fill(40, 80, 90, 50);
+      p.textFont('Courier New'); p.textSize(8); p.textAlign(p.LEFT);
+      const centroidHz = Math.pow(10, signals.centroid * (Math.log10(20000) - Math.log10(20)) + Math.log10(20));
+      p.text(Math.round(centroidHz) + 'Hz', centroidX + 4, 20);
+
+      const hue = 140 - signals.rms * 300;
+      p.stroke(Math.max(0, hue), 60, 90, 85); p.strokeWeight(1.2); p.noFill();
+      p.beginShape();
+      for (let i = 0; i < waveArray.length; i++) {
+        p.vertex(p.map(i, 0, waveArray.length - 1, 0, p.width), cy + waveArray[i] * h);
+      }
+      p.endShape();
+    }
+
+    function drawSpectrum() {
+      p.background(0);
+      const bottom  = p.height * 0.88;
+      const h       = bottom;
+      const nyquist = audioCtx ? audioCtx.sampleRate / 2 : 24000;
+      const logMin  = Math.log10(20);
+      const logMax  = Math.log10(nyquist);
+
+      [
+        { min: 20,   max: 200,    hue: 210, label: 'BASS' },
+        { min: 200,  max: 2000,   hue: 140, label: 'MID'  },
+        { min: 2000, max: nyquist,hue: 40,  label: 'HIGH' },
+      ].forEach(({ min, max, hue }) => {
+        const x1 = p.map(Math.log10(min), logMin, logMax, 0, p.width);
+        const x2 = p.map(Math.log10(Math.min(max, nyquist)), logMin, logMax, 0, p.width);
+        p.noStroke(); p.fill(hue, 40, 50, 8); p.rect(x1, 0, x2 - x1, bottom);
+      });
+
+      [50, 100, 200, 500, 1000, 2000, 5000, 10000].forEach(hz => {
+        if (hz > nyquist) return;
+        const x = p.map(Math.log10(hz), logMin, logMax, 0, p.width);
+        p.stroke(255, 0, 50, 15); p.strokeWeight(0.5); p.line(x, 0, x, bottom);
+        p.noStroke(); p.fill(255, 0, 40, 25);
+        p.textFont('Courier New'); p.textSize(8); p.textAlign(p.CENTER);
+        p.text(hz >= 1000 ? (hz/1000)+'k' : hz, x, bottom + 12);
+      });
+
+      for (let i = 1; i < specArray.length; i++) {
+        const freq = (i / specArray.length) * nyquist;
+        if (freq < 20) continue;
+        const x   = p.map(Math.log10(freq), logMin, logMax, 0, p.width);
+        const amp  = specArray[i] / 255;
+        const hue  = p.map(Math.log10(freq), logMin, logMax, 210, 40);
+        p.noStroke(); p.fill(hue, 70, 85, 65);
+        p.rect(x - 1, bottom - amp * h, 2, amp * h);
+      }
+
+      // Centroid marker
+      const centroidX = p.map(signals.centroid, 0, 1, 0, p.width);
+      p.stroke(40, 80, 90, 60); p.strokeWeight(1.5);
+      p.line(centroidX, 0, centroidX, bottom);
+      p.noStroke(); p.fill(40, 80, 90, 70);
+      p.textFont('Courier New'); p.textSize(8); p.textAlign(p.CENTER);
+      const centroidHz = Math.pow(10, signals.centroid * (Math.log10(20000) - Math.log10(20)) + Math.log10(20));
+      p.text('▲ ' + Math.round(centroidHz) + 'Hz', centroidX, bottom + 24);
+
+      p.textAlign(p.LEFT); p.textSize(9);
+      [
+        { label: 'RMS',      val: signals.rms      },
+        { label: 'BASS',     val: signals.bass     },
+        { label: 'MID',      val: signals.mid      },
+        { label: 'HIGH',     val: signals.high     },
+        { label: 'CENTROID', val: signals.centroid },
+      ].forEach(({ label, val }, i) => {
+        p.fill(255, 0, 45, 35);
+        p.text(`${label}  ${val.toFixed(4)}`, 16, 28 + i * 14);
+      });
+    }
+
+    function drawSpectrogram() {
+      if (!spectroBuffer) {
+        spectroBuffer = p.createGraphics(p.width, p.height);
+        spectroBuffer.colorMode(p.HSB, 360, 100, 100, 100);
+        spectroBuffer.background(0);
+      }
+      const nyquist = audioCtx ? audioCtx.sampleRate / 2 : 24000;
+      const logMin  = Math.log10(20);
+      const logMax  = Math.log10(Math.min(nyquist, 20000));
+      const colW    = 3;
+
+      spectroBuffer.copy(
+        spectroBuffer, colW, 0, p.width - colW, p.height,
+        0, 0, p.width - colW, p.height
+      );
+
+      for (let i = 1; i < specArray.length; i++) {
+        const freq = (i / specArray.length) * nyquist;
+        if (freq < 20 || freq > 20000) continue;
+        const y   = p.map(Math.log10(freq), logMin, logMax, p.height, 0);
+        const amp  = specArray[i] / 255;
+        const hue  = p.map(Math.log10(freq), logMin, logMax, 210, 40);
+        spectroBuffer.noStroke();
+        spectroBuffer.fill(hue, 80, amp * 100, 100);
+        spectroBuffer.rect(p.width - colW, y, colW, 3);
+      }
+
+      // Centroid dot on right edge
+      const centroidY = p.map(signals.centroid, 0, 1, p.height, 0);
+      spectroBuffer.noStroke();
+      spectroBuffer.fill(40, 80, 100, 100);
+      spectroBuffer.ellipse(p.width - colW/2, centroidY, 4, 4);
+
+      p.background(0);
+      p.image(spectroBuffer, 0, 0);
+
+      [50, 200, 500, 1000, 2000, 5000, 10000].forEach(hz => {
+        const y = p.map(Math.log10(hz), logMin, logMax, p.height, 0);
+        p.stroke(255, 0, 50, 15); p.strokeWeight(0.3);
+        p.line(0, y, p.width, y);
+        p.noStroke(); p.fill(255, 0, 45, 30);
+        p.textFont('Courier New'); p.textSize(8); p.textAlign(p.RIGHT);
+        p.text(hz >= 1000 ? (hz/1000)+'k' : hz, p.width - 8, y + 3);
+      });
+    }
+
+    p.draw = () => {
+      if (!running || !analyser) {
+        p.background(0);
+        p.fill(255, 0, 40, 20); p.noStroke();
+        p.textFont('Courier New'); p.textSize(10); p.textAlign(p.CENTER);
+        p.text('click enable microphone', p.width/2, p.height/2);
+        return;
+      }
+
+      analyser.getFloatTimeDomainData(waveArray);
+      analyser.getByteFrequencyData(specArray);
+
+      // RMS
+      let sum = 0;
+      for (let i = 0; i < waveArray.length; i++) sum += waveArray[i] * waveArray[i];
+      const rms = Math.sqrt(sum / waveArray.length);
+
+      // Peak hold
+      if (rms > peakHold) peakHold = rms;
+      peakHold *= 0.997;
+
+      // Smooth all signals
+      const s = 0.25;
+      signals.rms      = signals.rms      * (1-s) + rms                              * s;
+      signals.bass     = signals.bass     * (1-s) + bandEnergy(specArray, 20,   200)  * s;
+      signals.mid      = signals.mid      * (1-s) + bandEnergy(specArray, 200,  2000) * s;
+      signals.high     = signals.high     * (1-s) + bandEnergy(specArray, 2000, 20000)* s;
+      signals.centroid = signals.centroid * (1-s) + spectralCentroid(specArray)       * s;
+
+      // HUD
+      document.getElementById('hud-rms').textContent      = signals.rms.toFixed(4);
+      document.getElementById('hud-peak').textContent     = peakHold.toFixed(4);
+      document.getElementById('sig-rms').textContent      = signals.rms.toFixed(4);
+      document.getElementById('sig-bass').textContent     = signals.bass.toFixed(4);
+      document.getElementById('sig-mid').textContent      = signals.mid.toFixed(4);
+      document.getElementById('sig-high').textContent     = signals.high.toFixed(4);
+      document.getElementById('sig-centroid').textContent = signals.centroid.toFixed(4);
+
+      switch (view) {
+        case 0: drawWaveform();    break;
+        case 1: drawSpectrum();    break;
+        case 2: drawSpectrogram(); break;
+      }
+    };
+  });
+  </script>
+</body>
+</html>

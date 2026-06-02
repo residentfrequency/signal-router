@@ -1,0 +1,12 @@
+#!/bin/bash
+BASE="https://localhost:3000"
+
+if [ -z "$1" ]; then
+    URL=$BASE
+elif [[ "$1" == http* ]]; then
+    URL="$1"
+else
+    URL="$BASE/$1"
+fi
+
+DISPLAY=:0 chromium --kiosk --no-sandbox --disable-infobars --noerrdialogs --password-store=basic "$URL" > /dev/null 2>&1 &

@@ -1,0 +1,546 @@
+const express    = require('express');
+const { WebSocketServer } = require('ws');
+const https      = require('https');
+const fs         = require('fs');
+const os         = require('os');
+const dgram      = require('dgram');
+const { execSync } = require('child_process');
+
+// ─── SSL ─────────────────────────────────────────────────────────────────────
+
+const certBase = '/var/lib/tailscale/certs/adrian-pi.tailc1f637.ts.net';
+
+let sslOptions;
+try {
+  sslOptions = {
+    key:  fs.readFileSync(`${certBase}.key`),
+    cert: fs.readFileSync(`${certBase}.crt`)
+  };
+  console.log('Using Tailscale HTTPS certificate');
+} catch (e) {
+  sslOptions = {
+    key:  fs.readFileSync('key.pem'),
+    cert: fs.readFileSync('cert.pem')
+  };
+  console.log('Using self-signed certificate');
+}
+
+// ─── Express + WebSocket ──────────────────────────────────────────────────────
+
+const app    = express();
+const server = https.createServer(sslOptions, app);
+const wss    = new WebSocketServer({ server });
+
+app.use(express.static('public'));
+app.use(express.json());
+app.use('/mic',   express.static('../mic'));
+app.use('/moire', express.static('../moire'));
+
+require('dotenv').config();
+const SUPABASE_URL      = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+// ─── Routing config ───────────────────────────────────────────────────────────
+
+const ROUTING_FILE = './routing.json';
+
+function loadRouting() {
+  try {
+    return JSON.parse(fs.readFileSync(ROUTING_FILE, 'utf8'));
+  } catch (e) {
+    return {
+      'distance1/distance': { channel: 2, cc: 1, enabled: true, min: 5,  max: 400 },
+      'distance1/rate':     { channel: 3, cc: 1, enabled: true, min: 5,  max: 60  },
+    };
+  }
+}
+
+function saveRouting() {
+  fs.writeFileSync(ROUTING_FILE, JSON.stringify(routing, null, 2));
+}
+
+const routing = loadRouting();
+
+// ─── HTTP routes ──────────────────────────────────────────────────────────────
+
+app.get('/routing', (req, res) => res.sendFile(__dirname + '/public/routing.html'));
+app.get('/api/routing', (req, res) => res.json(routing));
+
+app.post('/api/routing/:key', (req, res) => {
+  const key = decodeURIComponent(req.params.key);
+  if (routing[key]) {
+    Object.assign(routing[key], req.body);
+    saveRouting();
+    broadcast({ type: 'routing', routing });
+    res.json({ ok: true, routing: routing[key] });
+  } else {
+    res.status(404).json({ error: 'unknown key' });
+  }
+});
+
+app.post('/api/sensor/environment', (req, res) => {
+  const { temperature, humidity } = req.body;
+  broadcast({ type: 'sensor', name: 'environment', param: 'temperature',
+    value: temperature, source: 'adrian-pi', enabled: true, channel: 4, cc: 1, min: 15, max: 35 });
+  broadcast({ type: 'sensor', name: 'environment', param: 'humidity',
+    value: humidity, source: 'adrian-pi', enabled: true, channel: 4, cc: 2, min: 40, max: 100 });
+  res.json({ ok: true });
+});
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+const state = { distance: 0, rate: 0 };
+
+// ─── OSC encoding helpers ─────────────────────────────────────────────────────
+
+function encodeOSCString(str) {
+  const buf = Buffer.alloc(Math.ceil((str.length + 1) / 4) * 4);
+  buf.write(str, 0, 'ascii');
+  return buf;
+}
+function encodeOSCFloat(f) {
+  const buf = Buffer.alloc(4);
+  buf.writeFloatBE(f, 0);
+  return buf;
+}
+function encodeOSCInt(i) {
+  const buf = Buffer.alloc(4);
+  buf.writeInt32BE(i, 0);
+  return buf;
+}
+
+function buildOSCMessage(address, ...args) {
+  const addrBuf = encodeOSCString(address);
+  let typeTags  = ',';
+  const argBufs = [];
+  for (const arg of args) {
+    if (typeof arg === 'number' && Number.isInteger(arg)) {
+      typeTags += 'i'; argBufs.push(encodeOSCInt(arg));
+    } else if (typeof arg === 'number') {
+      typeTags += 'f'; argBufs.push(encodeOSCFloat(arg));
+    } else if (typeof arg === 'string') {
+      typeTags += 's'; argBufs.push(encodeOSCString(arg));
+    }
+  }
+  return Buffer.concat([addrBuf, encodeOSCString(typeTags), ...argBufs]);
+}
+
+function parseOSCMessage(buf) {
+  // Parse a raw OSC UDP packet — returns { address, args } or null
+  try {
+    let offset = 0;
+
+    // Read null-terminated string padded to 4 bytes
+    function readString() {
+      const end = buf.indexOf(0, offset);
+      const str = buf.slice(offset, end).toString('ascii');
+      offset = Math.ceil((end + 1) / 4) * 4;
+      return str;
+    }
+
+    const address  = readString();
+    const typeTags = readString(); // e.g. ",ff" or ",fi"
+    const args     = [];
+
+    for (let i = 1; i < typeTags.length; i++) {
+      const tag = typeTags[i];
+      if (tag === 'f') {
+        args.push(buf.readFloatBE(offset)); offset += 4;
+      } else if (tag === 'i') {
+        args.push(buf.readInt32BE(offset)); offset += 4;
+      } else if (tag === 's') {
+        args.push(readString());
+      } else if (tag === 'd') {
+        args.push(buf.readDoubleBE(offset)); offset += 8;
+      }
+    }
+    return { address, args };
+  } catch (e) {
+    return null;
+  }
+}
+
+// ─── SuperCollider OSC sender ─────────────────────────────────────────────────
+
+const scSocket = dgram.createSocket('udp4');
+
+function sendToSC(address, ...args) {
+  try {
+    scSocket.send(buildOSCMessage(address, ...args), 57110, '127.0.0.1');
+  } catch (e) {}
+}
+
+// ─── OSC client registry ──────────────────────────────────────────────────────
+//
+// oscReceiveClients — IPs the router sends OSC to on port 9000
+// oscSendClients   — IPs allowed to send OSC inbound to the router on port 5005
+//
+// Pi-local addresses are always in oscSendClients so sensors always work.
+// Other IPs are added only when their browser toggles the SEND button.
+
+const OSC_OUT_PORT = 9000;
+const OSC_IN_PORT  = 5005;
+
+const oscReceiveClients = new Set(); // router → client UDP on port 9000
+const oscSendClients    = new Set(); // client → router UDP on port 5005 (whitelist)
+
+// Pi-local addresses always allowed to send inbound OSC
+oscSendClients.add('127.0.0.1');
+oscSendClients.add('::1');
+oscSendClients.add('10.0.0.1');
+oscSendClients.add(os.hostname());
+oscSendClients.add('10.0.0.255');
+oscSendClients.add('192.168.0.255');
+oscSendClients.add('192.168.4.255');
+oscSendClients.add('192.168.1.255');
+
+const oscOutSocket = dgram.createSocket('udp4');
+
+function sendOSCToClient(ip, address, ...args) {
+  try {
+    oscOutSocket.send(buildOSCMessage(address, ...args), OSC_OUT_PORT, ip);
+  } catch (e) {}
+}
+
+function broadcastOSC(data) {
+  if (oscReceiveClients.size === 0) return;
+
+  if (data.type === 'sensor') {
+    const norm = (data.min != null && data.max != null)
+      ? Math.max(0, Math.min(1, (data.value - data.min) / (data.max - data.min)))
+      : data.value;
+    const addr = `/sensor/${data.name}/${data.param}`;
+    for (const ip of oscReceiveClients) sendOSCToClient(ip, addr, parseFloat(data.value), parseFloat(norm));
+
+  } else if (data.type === 'controller' || data.type === 'midi_upstream') {
+    const dev = (data.device || 'midi').replace(/\W+/g, '_');
+    if (data.msgType === 'cc') {
+      const norm = data.rawValue ?? data.value / 127;
+      const addr = `/midi/${dev}/ch${data.channel}/cc${data.cc}`;
+      for (const ip of oscReceiveClients) sendOSCToClient(ip, addr, parseFloat(norm), parseInt(data.value));
+    } else if (data.msgType === 'noteon') {
+      const addr = `/midi/${dev}/ch${data.channel}/n${data.note}`;
+      for (const ip of oscReceiveClients) sendOSCToClient(ip, addr, parseInt(data.velocity));
+    }
+  }
+}
+
+// ─── WebSocket broadcast ──────────────────────────────────────────────────────
+
+function broadcast(data) {
+  const json = JSON.stringify(data);
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(json);
+  });
+  broadcastOSC(data);
+}
+
+// ─── OSC inbound listener — raw dgram so we get sender IP ────────────────────
+//
+// Replaces osc-js for inbound — gives us rinfo.address to check whitelist.
+// Accepts OSC from whitelisted IPs only.
+// Pi-local addresses (127.0.0.1, 10.0.0.1) always accepted.
+// Remote IPs added to whitelist when browser sends osc_toggle_send: true.
+
+const oscInSocket = dgram.createSocket('udp4');
+
+oscInSocket.on('message', (buf, rinfo) => {
+  const senderIp = rinfo.address.replace(/^::ffff:/, '');
+
+  const isLocal = oscSendClients.has(senderIp);
+  const isBroadcast = senderIp.endsWith('.255');
+  if (!isLocal && !isBroadcast) {
+    console.log(`OSC from unregistered IP ${senderIp} — ignored`);
+    return;
+  }
+  
+  const msg = parseOSCMessage(buf);
+  if (!msg) return;
+
+
+  // Route known sensor addresses
+  const parts = msg.address.split('/').filter(Boolean); // ['sensor', 'distance1', 'distance']
+
+  if (parts[0] === 'sensor' && parts.length >= 3) {
+    const name  = parts[1];
+    const param = parts[2];
+    const value = msg.args[0];
+    const key   = `${name}/${param}`;
+    const route = routing[key] || {};
+
+    broadcast({
+      type: 'sensor', name, param, value,
+      source: senderIp,
+      channel: route.channel, cc: route.cc,
+      enabled: route.enabled ?? true,
+      min: route.min, max: route.max
+    });
+
+    // Forward to SuperCollider
+    sendToSC(msg.address, ...msg.args);
+
+  } else {
+    // Unknown OSC address — broadcast as-is with sender IP as source
+    // This handles arbitrary VCV / TouchDesigner / Max OSC output
+    const name  = parts.slice(0, -1).join('/') || msg.address;
+    const param = parts[parts.length - 1] || 'value';
+    const value = msg.args[0];
+
+    broadcast({
+      type: 'sensor',
+      name:  `osc-${senderIp}`,
+      param: msg.address.replace(/\//g, '_').slice(1),
+      value: typeof value === 'number' ? value : 0,
+      source: senderIp,
+      enabled: true
+    });
+
+    sendToSC(msg.address, ...msg.args);
+  }
+});
+
+oscInSocket.bind(OSC_IN_PORT, '0.0.0.0', () => {
+  console.log(`OSC inbound listening on port ${OSC_IN_PORT}`);
+});
+
+// ─── MIDI UDP receiver — from main.py on port 5006 ───────────────────────────
+
+const controllerRouting = {};
+const midiSocket        = dgram.createSocket('udp4');
+
+midiSocket.on('message', (msg, rinfo) => {
+  const separator = msg.indexOf('|'.charCodeAt(0));
+  if (separator === -1) return;
+
+  const device    = msg.slice(0, separator).toString();
+  const midiBytes = [...msg.slice(separator + 1)];
+  if (midiBytes.length < 3) return;
+
+  if (!controllerRouting[device]) {
+    controllerRouting[device] = { enabled: true };
+    console.log(`New device: ${device}`);
+    broadcast({ type: 'devices', devices: Object.keys(controllerRouting) });
+  }
+  if (!controllerRouting[device].enabled) return;
+
+  const status  = midiBytes[0];
+  const msgType = status & 0xF0;
+  const channel = (status & 0x0F) + 1;
+
+  let decoded = { type: 'controller', device, channel, raw: midiBytes };
+
+  if      (msgType === 0xB0) { decoded.msgType = 'cc';        decoded.cc   = midiBytes[1]; decoded.value    = midiBytes[2]; }
+  else if (msgType === 0x90) { decoded.msgType = 'noteon';    decoded.note = midiBytes[1]; decoded.velocity = midiBytes[2]; }
+  else if (msgType === 0x80) { decoded.msgType = 'noteoff';   decoded.note = midiBytes[1]; decoded.velocity = midiBytes[2]; }
+  else if (msgType === 0xE0) { decoded.msgType = 'pitchbend'; decoded.value = (midiBytes[2] << 7) | midiBytes[1]; }
+
+  broadcast(decoded);
+});
+
+midiSocket.bind(5006, '127.0.0.1', () => {
+  console.log('MIDI UDP listening on port 5006');
+});
+
+// ─── Connection tracking ──────────────────────────────────────────────────────
+
+const connectionsByIp = new Map();
+const clientMeta      = new Map();
+
+wss.on('connection', (ws, req) => {
+  const rawIp    = (req.headers['x-forwarded-for'] || req.socket.remoteAddress).replace(/^::ffff:/, '');
+  const clientIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
+
+  if (!connectionsByIp.has(clientIp)) connectionsByIp.set(clientIp, new Set());
+  connectionsByIp.get(clientIp).add(ws);
+
+  console.log(`Browser connected from ${clientIp}, unique IPs: ${connectionsByIp.size}`);
+
+  const net = getNetworkMode();
+  ws.send(JSON.stringify({
+    type: 'server_info',
+    hostname: os.hostname(),
+    platform: os.platform(),
+    networkMode: net.mode,
+    networkSsid: net.ssid
+  }));
+  ws.send(JSON.stringify({ type: 'state', state }));
+  ws.send(JSON.stringify({ type: 'routing', routing }));
+  ws.send(JSON.stringify({
+    type: 'client_info',
+    ip: clientIp,
+    tabCount: connectionsByIp.get(clientIp).size,
+    oscOutPort:     OSC_OUT_PORT,
+    oscInPort:      OSC_IN_PORT,
+    oscReceive:     oscReceiveClients.has(clientIp),
+    oscSend:        oscSendClients.has(clientIp),
+    isServerMachine: rawIp === '127.0.0.1' || rawIp === '::1' ||
+      Object.values(os.networkInterfaces()).flat().some(i => i?.address === rawIp)
+  }));
+  broadcastClientStats();
+
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+
+      // OSC receive toggle — router sends OSC UDP to this client on port 9000
+      if (data.type === 'osc_toggle_receive') {
+        if (data.enabled) {
+          oscReceiveClients.add(clientIp);
+          console.log(`OSC receive ON for ${clientIp} → port ${OSC_OUT_PORT}`);
+        } else {
+          oscReceiveClients.delete(clientIp);
+          console.log(`OSC receive OFF for ${clientIp}`);
+        }
+        broadcastClientStats();
+        return;
+      }
+
+      // OSC send toggle — allow/deny this client's IP to send OSC inbound on port 5005
+      if (data.type === 'osc_toggle_send') {
+        if (data.enabled) {
+          oscSendClients.add(clientIp);
+          console.log(`OSC send ON for ${clientIp} → listening on port ${OSC_IN_PORT}`);
+        } else {
+          // Never remove Pi-local addresses
+          if (clientIp !== '127.0.0.1' && clientIp !== '10.0.0.1') {
+            oscSendClients.delete(clientIp);
+            console.log(`OSC send OFF for ${clientIp}`);
+          }
+        }
+        broadcastClientStats();
+        return;
+      }
+
+      if (data.type === 'midi_upstream') {
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
+        });
+        broadcastOSC(data);
+        console.log(`UPSTREAM [${data.device}] Ch${data.channel} ${data.msgType}`);
+      }
+
+      if (data.type === 'client_meta') {
+        clientMeta.set(clientIp, { os: data.os, connType: data.connType });
+        broadcastClientStats();
+      }
+
+    } catch (e) {
+      console.error('WebSocket message error:', e);
+    }
+  });
+
+  ws.on('close', () => {
+    connectionsByIp.get(clientIp)?.delete(ws);
+    if (connectionsByIp.get(clientIp)?.size === 0) {
+      connectionsByIp.delete(clientIp);
+      oscReceiveClients.delete(clientIp);
+      // Don't remove from oscSendClients on disconnect —
+      // VCV/TD may still be sending OSC even if browser closed
+    }
+    broadcastClientStats();
+  });
+});
+
+function broadcastClientStats() {
+  for (const [ip, conns] of connectionsByIp) {
+    for (const conn of conns) {
+      if (conn.readyState !== 1) conns.delete(conn);
+    }
+    if (conns.size === 0) connectionsByIp.delete(ip);
+  }
+
+  const uniqueIps = [...connectionsByIp.keys()].map(ip => ({
+    ip,
+    tabCount:   connectionsByIp.get(ip).size,
+    oscReceive: oscReceiveClients.has(ip),
+    oscSend:    oscSendClients.has(ip),
+    ...( clientMeta.get(ip) || {} )
+  }));
+
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) {
+      for (const [ip, conns] of connectionsByIp) {
+        if (conns.has(client)) {
+          client.send(JSON.stringify({
+            type:       'client_count',
+            count:      uniqueIps.length,
+            tabCount:   conns.size,
+            allClients: uniqueIps
+          }));
+          break;
+        }
+      }
+    }
+  });
+}
+
+// ─── Network mode detection ───────────────────────────────────────────────────
+
+function getNetworkMode() {
+  try {
+    execSync("nmcli -t -f active,ssid dev wifi 2>/dev/null").toString();
+    const result = execSync('systemctl is-active hostapd 2>/dev/null').toString().trim();
+    if (result === 'active') {
+      const ssid = execSync("grep '^ssid=' /etc/hostapd/hostapd.conf 2>/dev/null")
+        .toString().trim().replace('ssid=', '');
+      return { mode: 'ap', ssid };
+    }
+  } catch {}
+  try {
+    const ssid = execSync("nmcli -t -f active,ssid dev wifi 2>/dev/null | grep '^yes' | cut -d: -f2")
+      .toString().trim();
+    return { mode: 'wifi', ssid: ssid || 'unknown' };
+  } catch {}
+  return { mode: 'unknown', ssid: '' };
+}
+
+// ─── Start server ─────────────────────────────────────────────────────────────
+
+const PORT = 3000;
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Router running on port ${PORT}`);
+  console.log(`OSC inbound on port ${OSC_IN_PORT} (whitelisted IPs only)`);
+  console.log(`OSC outbound on port ${OSC_OUT_PORT} (registered receive clients)`);
+});
+
+// ─── Supabase polling ─────────────────────────────────────────────────────────
+
+const { createClient } = require('@supabase/supabase-js');
+const WebSocket        = require('ws');
+const supabase         = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  realtime: { transport: WebSocket }
+});
+
+setInterval(async () => {
+  try {
+    const { data, error } = await supabase
+      .from('readings')
+      .select('device_id, ts, temp_c, temp_f, rh')
+      .order('ts', { ascending: false })
+      .limit(1);
+
+    if (error) { console.error('Supabase error:', error.message); return; }
+
+    if (data?.[0]) {
+      const routeC  = routing['esp32-am2320/temp_c'] || {};
+      const routeF  = routing['esp32-am2320/temp_f'] || {};
+      const routeRH = routing['esp32-am2320/rh']     || {};
+
+      broadcast({ type: 'sensor', name: 'esp32-am2320', param: 'temp_c',
+        value: data[0].temp_c, source: 'adrian-pi',
+        channel: routeC.channel, cc: routeC.cc, enabled: routeC.enabled,
+        min: routeC.min, max: routeC.max });
+      broadcast({ type: 'sensor', name: 'esp32-am2320', param: 'temp_f',
+        value: data[0].temp_f, source: 'adrian-pi',
+        channel: routeF.channel, cc: routeF.cc, enabled: routeF.enabled,
+        min: routeF.min, max: routeF.max });
+      broadcast({ type: 'sensor', name: 'esp32-am2320', param: 'rh',
+        value: data[0].rh, source: 'adrian-pi',
+        channel: routeRH.channel, cc: routeRH.cc, enabled: routeRH.enabled,
+        min: routeRH.min, max: routeRH.max });
+
+    }
+  } catch (e) {
+    console.error('Error fetching from Supabase:', e.message);
+  }
+}, 2000);

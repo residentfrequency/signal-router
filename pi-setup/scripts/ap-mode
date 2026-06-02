@@ -1,0 +1,10 @@
+#!/bin/bash
+echo "Switching to AP mode..."
+sudo nmcli con down "rf-ethernet" 2>/dev/null || true
+sudo nmcli con down "$(nmcli -t -f NAME,DEVICE con show --active | grep wlan0 | cut -d: -f1)" 2>/dev/null || true
+sudo nmcli dev set wlan0 managed no
+sudo ip addr add 192.168.4.1/24 dev wlan0 2>/dev/null || true
+sudo ip link set wlan0 up
+sudo systemctl start hostapd
+sudo systemctl start dnsmasq
+echo "AP mode active - ResidentFrequency broadcasting"

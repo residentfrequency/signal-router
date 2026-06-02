@@ -1,0 +1,12 @@
+[Unit]
+Description=File Browser
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+ExecStart=/usr/local/bin/filebrowser -r /home/pi -a 0.0.0.0 -p 8080 -d /home/pi/filebrowser.db
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

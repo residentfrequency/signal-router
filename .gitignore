@@ -1,0 +1,15 @@
+.env
+routing.json
+*.pem
+*.crt
+*.key
+node_modules/
+.DS_Store
+__pycache__/
+*.pyc
+EOF
+
+drafts/
+drafts/*
+tunnel-id.txt
+*.scd

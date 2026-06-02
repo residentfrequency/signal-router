@@ -1,0 +1,9 @@
+tunnel: resident-frequency
+credentials-file: /home/pi/.cloudflared/bf459c25-7b43-49b8-8d6f-5161dd4e5e00.json
+
+ingress:
+  - hostname: rf.postoccupancy.com
+    service: https://localhost:3000
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404

@@ -1,0 +1,3 @@
+#!/bin/bash
+[ "$1" = "wlan0" ] && [ "$2" = "up" ] && nmcli con up "rf-ethernet" 2>/dev/null
+exit 0

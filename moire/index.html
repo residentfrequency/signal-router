@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>RF · moire</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #fff; overflow: hidden; font-family: 'Courier New', monospace; }
+    #canvas-container { position: fixed; inset: 0; }
+
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.5em; padding: 0.9em 1em; z-index: 20; pointer-events: none;
+    }
+    .btn {
+      pointer-events: all; background: #fff;
+      border: 1px solid rgba(0,0,0,0.18); color: rgba(0,0,0,0.38);
+      font-family: 'Courier New', monospace; font-size: 0.58em;
+      letter-spacing: 0.14em; padding: 0.35em 0.8em; cursor: pointer;
+      text-transform: uppercase; transition: all 0.12s;
+    }
+    .btn.active { background: #000; color: #fff; border-color: #000; }
+    .btn:hover  { border-color: rgba(0,0,0,0.5); color: rgba(0,0,0,0.7); }
+
+    #panel-toggle {
+      position: fixed; top: 0.9em; right: 1.1em; z-index: 21; pointer-events: all;
+    }
+
+    #panel {
+      position: fixed; top: 0; right: 0; width: 200px; height: 100vh;
+      background: rgba(255,255,255,0.97); border-left: 1px solid rgba(0,0,0,0.08);
+      padding: 3.5em 1.2em 1.2em; z-index: 19;
+      display: flex; flex-direction: column; overflow-y: auto;
+      transform: translateX(0); transition: transform 0.25s ease;
+    }
+    #panel.closed { transform: translateX(100%); }
+
+    .panel-section { margin-bottom: 1.5em; }
+    .panel-label {
+      font-size: 0.48em; letter-spacing: 0.2em; color: rgba(0,0,0,0.28);
+      text-transform: uppercase; margin-bottom: 0.8em;
+      border-bottom: 1px solid rgba(0,0,0,0.07); padding-bottom: 0.4em;
+    }
+    .ctrl-row {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 0.3em;
+    }
+    .ctrl-name {
+      font-size: 0.48em; letter-spacing: 0.08em; color: rgba(0,0,0,0.45);
+      text-transform: uppercase; flex: 1;
+    }
+    .ctrl-val { font-size: 0.48em; color: rgba(0,0,0,0.55); width: 3em; text-align: right; }
+    input[type=range] {
+      -webkit-appearance: none; width: 100%; height: 2px;
+      background: rgba(0,0,0,0.1); outline: none; margin-bottom: 0.8em;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 10px; height: 10px;
+      border-radius: 50%; background: #000; cursor: pointer;
+    }
+    .mode-row {
+      display: flex; gap: 0.3em; margin-bottom: 0.6em; align-items: center;
+    }
+    .mode-btn {
+      flex: 1; background: #fff; border: 1px solid rgba(0,0,0,0.18);
+      color: rgba(0,0,0,0.38); font-family: 'Courier New', monospace;
+      font-size: 0.44em; letter-spacing: 0.1em; padding: 0.3em 0.2em;
+      cursor: pointer; text-transform: uppercase; text-align: center;
+    }
+    .mode-btn.active { background: #000; color: #fff; border-color: #000; }
+    .rev-btn {
+      background: #fff; border: 1px solid rgba(0,0,0,0.18);
+      color: rgba(0,0,0,0.38); font-family: 'Courier New', monospace;
+      font-size: 0.44em; letter-spacing: 0.08em; padding: 0.3em 0.4em;
+      cursor: pointer; text-transform: uppercase;
+    }
+    .rev-btn.active { background: #444; color: #fff; border-color: #444; }
+    .color-preview {
+      width: 100%; height: 18px; border: 1px solid rgba(0,0,0,0.1);
+      margin-bottom: 0.5em; border-radius: 2px;
+    }
+    .color-row {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.3em 0.6em;
+      margin-bottom: 0.4em;
+    }
+    .color-ctrl { display: flex; flex-direction: column; gap: 0.15em; }
+    .color-label {
+      font-size: 0.42em; letter-spacing: 0.1em; color: rgba(0,0,0,0.3);
+      text-transform: uppercase;
+    }
+    .source-label {
+      font-size: 0.46em; letter-spacing: 0.08em; color: rgba(0,0,0,0.3);
+      text-transform: uppercase; margin-bottom: 0.3em;
+    }
+    select {
+      font-family: 'Courier New', monospace; font-size: 0.48em;
+      border: 1px solid rgba(0,0,0,0.15); background: #fff;
+      color: rgba(0,0,0,0.6); padding: 0.3em 0.4em; outline: none;
+      width: 100%; cursor: pointer; margin-bottom: 0.5em;
+    }
+    .sig-readout {
+      font-size: 0.44em; color: rgba(0,0,0,0.3); line-height: 1.9em;
+      letter-spacing: 0.06em; text-transform: uppercase;
+    }
+    .sig-readout span { color: rgba(0,0,0,0.55); }
+    .sig-badge {
+      font-size: 0.38em; letter-spacing: 0.1em; color: rgba(0,0,0,0.2);
+      text-transform: uppercase; margin-top: 0.2em;
+    }
+    .sig-badge.direct { color: rgba(0,140,0,0.7); }
+
+    #hud {
+      position: fixed; bottom: 1.2em; left: 1.2em;
+      color: rgba(0,0,0,0.2); font-size: 0.5em;
+      letter-spacing: 0.12em; line-height: 2.1em;
+      text-transform: uppercase; pointer-events: none;
+    }
+    #hud span { color: rgba(0,0,0,0.48); }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+
+  <div id="topbar">
+    <button class="btn active" onclick="setMode(0)">I · COMB</button>
+    <button class="btn"        onclick="setMode(1)">II · MESH</button>
+    <button class="btn"        onclick="setMode(2)">III · RINGS</button>
+  </div>
+
+  <button class="btn" id="panel-toggle" onclick="togglePanel()">◂</button>
+
+  <div id="panel">
+
+    <div class="panel-section">
+      <div class="panel-label">Angle Source</div>
+      <div class="source-label">Separates layers A ↔ B</div>
+      <select id="angle-source" onchange="angleSrcKey = this.value">
+        <option value="none">— none (manual only) —</option>
+      </select>
+      <div class="sig-readout">
+        now &nbsp;<span id="angle-now">--</span><br>
+        smooth <span id="angle-smooth">--</span>
+      </div>
+      <div class="sig-badge" id="angle-badge">via router</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Rate Source</div>
+      <div class="source-label">Controls oscillation speed</div>
+      <select id="rate-source" onchange="rateSrcKey = this.value">
+        <option value="none">— none (manual only) —</option>
+      </select>
+      <div class="sig-readout">
+        now &nbsp;<span id="rate-now">--</span><br>
+        smooth <span id="rate-smooth">--</span>
+      </div>
+      <div class="sig-badge" id="rate-badge">via router</div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Mapping · Ch2</div>
+      <div class="ctrl-row">
+        <div class="ctrl-name">Max angle ° <span style="opacity:0.4">cc1</span></div>
+        <div class="ctrl-val" id="val-maxAngle">45</div>
+      </div>
+      <input type="range" id="maxAngle" min="0" max="90" step="0.5" value="45"
+             oninput="setParam('maxAngle', +this.value)">
+
+      <div class="ctrl-row">
+        <div class="ctrl-name">Max rate Hz <span style="opacity:0.4">cc2</span></div>
+        <div class="ctrl-val" id="val-maxRate">0.20</div>
+      </div>
+      <input type="range" id="maxRate" min="0.005" max="1" step="0.005" value="0.2"
+             oninput="setParam('maxRate', +this.value)">
+
+      <div class="ctrl-row">
+        <div class="ctrl-name">Smoothing <span style="opacity:0.4">cc3</span></div>
+        <div class="ctrl-val" id="val-smoothing">0.05</div>
+      </div>
+      <input type="range" id="smoothing" min="0.01" max="0.5" step="0.01" value="0.05"
+             oninput="setParam('smoothing', +this.value)">
+
+      <div class="ctrl-row">
+        <div class="ctrl-name">Osc depth <span style="opacity:0.4">cc4</span></div>
+        <div class="ctrl-val" id="val-oscDepth">3°</div>
+      </div>
+      <input type="range" id="oscDepth" min="0" max="3.14" step="0.01" value="0.05"
+             oninput="setParam('oscDepth', +this.value)">
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Layer A · Ch2 n36/37</div>
+      <div class="mode-row">
+        <div class="mode-btn active" id="modeA-still" onclick="setLayerMode('A','still')">STILL</div>
+        <div class="mode-btn" id="modeA-osc"   onclick="setLayerMode('A','osc')">OSC</div>
+        <div class="mode-btn" id="modeA-rot"   onclick="setLayerMode('A','rot')">ROT</div>
+        <div class="rev-btn"  id="revA"         onclick="toggleRev('A')">REV</div>
+      </div>
+      <div class="ctrl-row">
+        <div class="ctrl-name">Base angle ° <span style="opacity:0.4">ch1/cc8</span></div>
+        <div class="ctrl-val" id="val-manualA">0.0</div>
+      </div>
+      <input type="range" id="manualA" min="-90" max="90" step="0.5" value="0"
+             oninput="setParam('manualA', +this.value)">
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Layer B · Ch2 n38/39</div>
+      <div class="mode-row">
+        <div class="mode-btn active" id="modeB-still" onclick="setLayerMode('B','still')">STILL</div>
+        <div class="mode-btn" id="modeB-osc"   onclick="setLayerMode('B','osc')">OSC</div>
+        <div class="mode-btn" id="modeB-rot"   onclick="setLayerMode('B','rot')">ROT</div>
+        <div class="rev-btn"  id="revB"         onclick="toggleRev('B')">REV</div>
+      </div>
+      <div class="ctrl-row">
+        <div class="ctrl-name">Base angle ° <span style="opacity:0.4">ch1/cc13</span></div>
+        <div class="ctrl-val" id="val-manualB">0.0</div>
+      </div>
+      <input type="range" id="manualB" min="-90" max="90" step="0.5" value="0"
+             oninput="setParam('manualB', +this.value)">
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Color · Background · Ch1</div>
+      <div id="bg-preview" class="color-preview"></div>
+      <div class="color-row">
+        <div class="color-ctrl">
+          <div class="color-label">Hue cc14</div>
+          <input type="range" id="bgH" min="0" max="360" step="1" value="0"
+                 oninput="setColor('bg','h',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Sat % cc16</div>
+          <input type="range" id="bgS" min="0" max="100" step="1" value="0"
+                 oninput="setColor('bg','s',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Bright % cc15</div>
+          <input type="range" id="bgB" min="0" max="100" step="1" value="100"
+                 oninput="setColor('bg','b',+this.value)">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Color · Layer A · Ch1</div>
+      <div id="layerA-preview" class="color-preview"></div>
+      <div class="color-row">
+        <div class="color-ctrl">
+          <div class="color-label">Hue cc4</div>
+          <input type="range" id="layerAH" min="0" max="360" step="1" value="0"
+                 oninput="setColor('layerA','h',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Sat % cc6</div>
+          <input type="range" id="layerAS" min="0" max="100" step="1" value="0"
+                 oninput="setColor('layerA','s',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Bright % cc5</div>
+          <input type="range" id="layerAB" min="0" max="100" step="1" value="0"
+                 oninput="setColor('layerA','b',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Opacity % cc7</div>
+          <input type="range" id="layerAO" min="0" max="100" step="1" value="73"
+                 oninput="setColor('layerA','o',+this.value)">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Color · Layer B · Ch1</div>
+      <div id="layerB-preview" class="color-preview"></div>
+      <div class="color-row">
+        <div class="color-ctrl">
+          <div class="color-label">Hue cc9</div>
+          <input type="range" id="layerBH" min="0" max="360" step="1" value="0"
+                 oninput="setColor('layerB','h',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Sat % cc11</div>
+          <input type="range" id="layerBS" min="0" max="100" step="1" value="0"
+                 oninput="setColor('layerB','s',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Bright % cc10</div>
+          <input type="range" id="layerBB" min="0" max="100" step="1" value="0"
+                 oninput="setColor('layerB','b',+this.value)">
+        </div>
+        <div class="color-ctrl">
+          <div class="color-label">Opacity % cc12</div>
+          <input type="range" id="layerBO" min="0" max="100" step="1" value="55"
+                 oninput="setColor('layerB','o',+this.value)">
+        </div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="panel-label">Pattern · Ch1</div>
+      <div class="ctrl-row">
+        <div class="ctrl-name">Blur <span style="opacity:0.4">cc3</span></div>
+        <div class="ctrl-val" id="val-blur">0</div>
+      </div>
+      <input type="range" id="blur" min="0" max="10" step="0.5" value="0"
+             oninput="setParam('blur', +this.value)">
+      <div class="ctrl-row">
+        <div class="ctrl-name">Spacing <span style="opacity:0.4">cc2</span></div>
+        <div class="ctrl-val" id="val-spacing">12</div>
+      </div>
+      <input type="range" id="spacing" min="4" max="40" step="1" value="12"
+             oninput="setParam('spacing', +this.value)">
+      <div class="ctrl-row">
+        <div class="ctrl-name">Thickness <span style="opacity:0.4">cc1</span></div>
+        <div class="ctrl-val" id="val-thick">5</div>
+      </div>
+      <input type="range" id="thick" min="1" max="20" step="0.5" value="5"
+             oninput="setParam('thick', +this.value)">
+    </div>
+
+  </div>
+
+  <div id="hud">
+    <div>ANGLE A <span id="hud-angleA">--</span></div>
+    <div>ANGLE B <span id="hud-angleB">--</span></div>
+    <div>RATE &nbsp;&nbsp;<span id="hud-rate">--</span> Hz</div>
+    <div>MIDI &nbsp;&nbsp;<span id="hud-midi">init...</span></div>
+    <div>WS &nbsp;&nbsp;&nbsp;&nbsp;<span id="ws-val">--</span></div>
+  </div>
+
+  <script>
+  // ═══════════════════════════════════════════════════
+  // PARAMS
+  // ═══════════════════════════════════════════════════
+
+  const params = {
+    maxAngle:  45,
+    maxRate:   0.20,
+    smoothing: 0.05,
+    oscDepth:  0.05,
+    manualA:   0,
+    manualB:   0,
+    spacing:   12,
+    thick:     5,
+    blur:      0,
+  };
+
+  function setParam(key, val) {
+    params[key] = val;
+    const el = document.getElementById('val-' + key);
+    if (!el) return;
+    if (key === 'oscDepth') {
+      el.textContent = (val * 180 / Math.PI).toFixed(0) + '°';
+    } else {
+      el.textContent = Number.isInteger(val) ? val : val.toFixed(3);
+    }
+  }
+
+  function syncSlider(key) {
+    const el = document.getElementById(key);
+    if (el) el.value = params[key];
+  }
+
+  // ── Color ─────────────────────────────────────────
+
+  const colors = {
+    bg:     { h: 0, s: 0,  b: 100, o: 100 },
+    layerA: { h: 0, s: 0,  b: 0,   o: 73  },
+    layerB: { h: 0, s: 0,  b: 0,   o: 55  },
+  };
+
+  function setColor(target, channel, val) {
+    colors[target][channel] = val;
+    updateColorPreview(target);
+  }
+
+  function updateColorPreview(target) {
+    const el = document.getElementById(target + '-preview');
+    if (!el) return;
+    const c = colors[target];
+    el.style.background = `hsla(${c.h}, ${(c.s*(1-c.b/200)).toFixed(1)}%, ${(c.b*(1-c.s/200)).toFixed(1)}%, ${c.o/100})`;
+  }
+  ['bg','layerA','layerB'].forEach(updateColorPreview);
+
+  // ═══════════════════════════════════════════════════
+  // SIGNAL SOURCES
+  // ═══════════════════════════════════════════════════
+
+  let angleSrcKey = 'none';
+  let rateSrcKey  = 'none';
+  let angleSignalSmoothed = 0;
+  let rateSignalSmoothed  = 0;
+
+  // Track keys that are arriving via direct WebMIDI
+  // so router path doesn't double-process them
+  const directMidiKeys = new Set();
+
+  const knownSignals = new Set(['none']);
+
+  function addToDropdowns(key) {
+    if (knownSignals.has(key)) return;
+    knownSignals.add(key);
+    ['angle-source', 'rate-source'].forEach(id => {
+      const sel = document.getElementById(id);
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = key;
+      sel.appendChild(opt);
+    });
+  }
+
+  function routeSignal(key, norm, isDirect) {
+    const s = params.smoothing;
+
+    if (key === angleSrcKey) {
+      // Direct MIDI: assign immediately, smoothing applied minimally
+      // Router: normal smoothing
+      if (isDirect) {
+        angleSignalSmoothed = norm; // no lag — fires on MIDI event not render frame
+      } else {
+        angleSignalSmoothed += (norm - angleSignalSmoothed) * s;
+      }
+      document.getElementById('angle-now').textContent    = norm.toFixed(3);
+      document.getElementById('angle-smooth').textContent = angleSignalSmoothed.toFixed(3);
+      const badge = document.getElementById('angle-badge');
+      badge.textContent = isDirect ? '⚡ direct MIDI' : 'via router';
+      badge.className   = isDirect ? 'sig-badge direct' : 'sig-badge';
+    }
+
+    if (key === rateSrcKey) {
+      if (isDirect) {
+        rateSignalSmoothed = norm;
+      } else {
+        rateSignalSmoothed += (norm - rateSignalSmoothed) * s;
+      }
+      document.getElementById('rate-now').textContent    = norm.toFixed(3);
+      document.getElementById('rate-smooth').textContent = rateSignalSmoothed.toFixed(3);
+      const badge = document.getElementById('rate-badge');
+      badge.textContent = isDirect ? '⚡ direct MIDI' : 'via router';
+      badge.className   = isDirect ? 'sig-badge direct' : 'sig-badge';
+    }
+  }
+
+  function signalKeyFor(data) {
+    if (data.type === 'sensor') return `${data.name}/${data.param}`;
+    if (data.type === 'midi_upstream' || data.type === 'controller') {
+      const dev = data.device || 'unknown';
+      if (dev.includes('/')) return dev;
+      if (data.msgType === 'cc')      return `${dev}/ch${data.channel}/cc${data.cc}`;
+      if (data.msgType === 'noteon' || data.msgType === 'noteoff')
+                                       return `${dev}/ch${data.channel}/n${data.note}`;
+      if (data.msgType === 'pitchbend') return `${dev}/ch${data.channel}/pb`;
+      return dev;
+    }
+    return null;
+  }
+
+  // ═══════════════════════════════════════════════════
+  // DIRECT WebMIDI
+  // Fires on MIDI event — not blocked by render loop
+  // No round trip through router
+  // Signals still appear in dropdowns via addToDropdowns
+  // ═══════════════════════════════════════════════════
+
+  function initDirectMidi() {
+    if (!navigator.requestMIDIAccess) {
+      document.getElementById('hud-midi').textContent = 'not supported';
+      return;
+    }
+    navigator.requestMIDIAccess().then(midi => {
+      function attachAll() {
+        document.getElementById('hud-midi').textContent = midi.inputs.size + ' ports';
+        midi.inputs.forEach(input => {
+          input.onmidimessage = (e) => handleDirectMidi(e, input.name);
+        });
+      }
+      attachAll();
+      midi.onstatechange = attachAll;
+    }).catch(() => {
+      document.getElementById('hud-midi').textContent = 'denied';
+    });
+  }
+
+  function handleDirectMidi(event, portName) {
+    if (!event.data || event.data.length < 3) return;
+    const [status, byte1, byte2] = event.data;
+    const msgType = status & 0xF0;
+    const channel = (status & 0x0F) + 1;
+
+    // ── Note-on (channel 2) — mode and pattern buttons ──
+    if (msgType === 0x90 && byte2 > 0 && channel === 2) {
+      const note = byte1;
+      switch (note) {
+        case 36: // Layer A mode cycle: still → osc → rot
+          if      (layerState.A.mode === 'still') setLayerMode('A', 'osc');
+          else if (layerState.A.mode === 'osc')   setLayerMode('A', 'rot');
+          else                                     setLayerMode('A', 'still');
+          break;
+        case 37: toggleRev('A'); break;
+        case 38: // Layer B mode cycle
+          if      (layerState.B.mode === 'still') setLayerMode('B', 'osc');
+          else if (layerState.B.mode === 'osc')   setLayerMode('B', 'rot');
+          else                                     setLayerMode('B', 'still');
+          break;
+        case 39: toggleRev('B'); break;
+        case 40: setMode((mode + 1) % 3); break; // comb→mesh→rings
+      }
+      return;
+    }
+
+    // ── CC only below ──
+    if (msgType !== 0xB0) return;
+
+    const cc   = byte1;
+    const norm = byte2 / 127;
+    const key  = `${portName}/ch${channel}/cc${cc}`;
+
+    directMidiKeys.add(key);
+    addToDropdowns(key);
+    routeSignal(key, norm, true);
+
+    // ── Channel 1 — VCV visual parameters ───────────────
+    // cc1  Thickness
+    // cc2  Spacing
+    // cc3  Blur
+    // cc4  Layer A hue
+    // cc5  Layer A brightness
+    // cc6  Layer A saturation
+    // cc7  Layer A opacity
+    // cc8  Layer A base angle
+    // cc9  Layer B hue
+    // cc10 Layer B brightness
+    // cc11 Layer B saturation
+    // cc12 Layer B opacity
+    // cc13 Layer B base angle
+    // cc14 Background hue
+    // cc15 Background brightness
+    // cc16 Background saturation
+    if (channel === 1 && key !== angleSrcKey && key !== rateSrcKey) {
+      const sc = (id, val) => { document.getElementById(id).value = val; };
+      switch (cc) {
+        case 1:  setParam('thick',   0.5 + norm * 19.5);  syncSlider('thick');   break;
+        case 2:  setParam('spacing', 4   + norm * 36);    syncSlider('spacing'); break;
+        case 3:  setParam('blur',    norm * 10);           syncSlider('blur');    break;
+        case 4:  setColor('layerA','h', norm*360); sc('layerAH', norm*360); updateColorPreview('layerA'); break;
+        case 5:  setColor('layerA','b', norm*100); sc('layerAB', norm*100); updateColorPreview('layerA'); break;
+        case 6:  setColor('layerA','s', norm*100); sc('layerAS', norm*100); updateColorPreview('layerA'); break;
+        case 7:  setColor('layerA','o', norm*100); sc('layerAO', norm*100); updateColorPreview('layerA'); break;
+        case 8:  setParam('manualA', (norm-0.5)*180);      syncSlider('manualA'); break;
+        case 9:  setColor('layerB','h', norm*360); sc('layerBH', norm*360); updateColorPreview('layerB'); break;
+        case 10: setColor('layerB','b', norm*100); sc('layerBB', norm*100); updateColorPreview('layerB'); break;
+        case 11: setColor('layerB','s', norm*100); sc('layerBS', norm*100); updateColorPreview('layerB'); break;
+        case 12: setColor('layerB','o', norm*100); sc('layerBO', norm*100); updateColorPreview('layerB'); break;
+        case 13: setParam('manualB', (norm-0.5)*180);      syncSlider('manualB'); break;
+        case 14: setColor('bg','h', norm*360); sc('bgH', norm*360); updateColorPreview('bg'); break;
+        case 15: setColor('bg','b', norm*100); sc('bgB', norm*100); updateColorPreview('bg'); break;
+        case 16: setColor('bg','s', norm*100); sc('bgS', norm*100); updateColorPreview('bg'); break;
+      }
+    }
+
+    // ── Channel 2 — VCV mapping parameters ──────────────
+    // cc1 Max angle
+    // cc2 Max rate
+    // cc3 Smoothing
+    // cc4 Osc depth
+    if (channel === 2 && key !== angleSrcKey && key !== rateSrcKey) {
+      switch (cc) {
+        case 1: setParam('maxAngle',  norm * 90);            syncSlider('maxAngle');  break;
+        case 2: setParam('maxRate',   0.005 + norm * 0.995); syncSlider('maxRate');   break;
+        case 3: setParam('smoothing', 0.01 + norm * 0.49);   syncSlider('smoothing'); break;
+        case 4: setParam('oscDepth',  norm * 3.14);          syncSlider('oscDepth');  break;
+      }
+    }
+
+    // ── Channel 3 — Teensy manual controls ──────────────
+    if (channel === 3 && key !== angleSrcKey && key !== rateSrcKey) {
+      switch (cc) {
+        case 1: setParam('maxAngle',  norm * 90);             syncSlider('maxAngle');  break;
+        case 2: setParam('maxRate',   0.005 + norm * 0.995);  syncSlider('maxRate');   break;
+        case 3: setParam('smoothing', 0.01 + norm * 0.49);    syncSlider('smoothing'); break;
+        case 4: setParam('oscDepth',  norm * 3.14);           syncSlider('oscDepth');  break;
+        case 5: setParam('manualA',   (norm - 0.5) * 180);    syncSlider('manualA');   break;
+        case 6: setParam('manualB',   (norm - 0.5) * 180);    syncSlider('manualB');   break;
+      }
+    }
+  }
+
+  // Init direct MIDI immediately
+  initDirectMidi();
+
+  // ═══════════════════════════════════════════════════
+  // WEBSOCKET — router connection
+  // Handles sensors and named signals (mic, moire derived)
+  // Skips keys already handled by direct MIDI
+  // ═══════════════════════════════════════════════════
+
+  const host = location.host || 'adrian-pi.tailc1f637.ts.net:3000';
+  const ws   = new WebSocket(`wss://${host}`);
+  let MY_IP  = null;
+
+  ws.onopen  = () => { document.getElementById('ws-val').textContent = 'connected'; };
+  ws.onclose = () => { document.getElementById('ws-val').textContent = 'disconnected'; };
+
+  ws.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.type === 'client_info') MY_IP = data.ip;
+
+      const key = signalKeyFor(data);
+      if (!key) return;
+
+      let norm;
+      if (data.type === 'sensor') {
+        norm = data.min != null
+          ? Math.max(0, Math.min(1, (data.value - data.min) / (data.max - data.min)))
+          : data.value;
+      } else {
+        const raw = data.rawValue ?? (data.value / 127);
+        norm = Math.max(0, Math.min(1, raw));
+      }
+
+      addToDropdowns(key);
+
+      // Skip routing if already handled by direct MIDI
+      if (!directMidiKeys.has(key)) {
+        routeSignal(key, norm, false);
+      }
+
+      // Router MIDI handlers — mirror of handleDirectMidi
+      // Only fires if NOT already handled by direct MIDI
+      if (!directMidiKeys.has(key) &&
+          (data.type === 'controller' || data.type === 'midi_upstream') &&
+          data.msgType === 'cc' && key !== angleSrcKey && key !== rateSrcKey) {
+
+        const sc = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
+
+        if (data.channel === 1) {
+          switch (data.cc) {
+            case 1:  setParam('thick',   0.5 + norm * 19.5);  syncSlider('thick');   break;
+            case 2:  setParam('spacing', 4   + norm * 36);    syncSlider('spacing'); break;
+            case 3:  setParam('blur',    norm * 10);           syncSlider('blur');    break;
+            case 4:  setColor('layerA','h',norm*360); sc('layerAH',norm*360); updateColorPreview('layerA'); break;
+            case 5:  setColor('layerA','b',norm*100); sc('layerAB',norm*100); updateColorPreview('layerA'); break;
+            case 6:  setColor('layerA','s',norm*100); sc('layerAS',norm*100); updateColorPreview('layerA'); break;
+            case 7:  setColor('layerA','o',norm*100); sc('layerAO',norm*100); updateColorPreview('layerA'); break;
+            case 8:  setParam('manualA',(norm-0.5)*180);       syncSlider('manualA'); break;
+            case 9:  setColor('layerB','h',norm*360); sc('layerBH',norm*360); updateColorPreview('layerB'); break;
+            case 10: setColor('layerB','b',norm*100); sc('layerBB',norm*100); updateColorPreview('layerB'); break;
+            case 11: setColor('layerB','s',norm*100); sc('layerBS',norm*100); updateColorPreview('layerB'); break;
+            case 12: setColor('layerB','o',norm*100); sc('layerBO',norm*100); updateColorPreview('layerB'); break;
+            case 13: setParam('manualB',(norm-0.5)*180);       syncSlider('manualB'); break;
+            case 14: setColor('bg','h',norm*360); sc('bgH',norm*360); updateColorPreview('bg'); break;
+            case 15: setColor('bg','b',norm*100); sc('bgB',norm*100); updateColorPreview('bg'); break;
+            case 16: setColor('bg','s',norm*100); sc('bgS',norm*100); updateColorPreview('bg'); break;
+          }
+        }
+        if (data.channel === 2) {
+          switch (data.cc) {
+            case 1: setParam('maxAngle',  norm * 90);            syncSlider('maxAngle');  break;
+            case 2: setParam('maxRate',   0.005 + norm * 0.995); syncSlider('maxRate');   break;
+            case 3: setParam('smoothing', 0.01 + norm * 0.49);   syncSlider('smoothing'); break;
+            case 4: setParam('oscDepth',  norm * 3.14);          syncSlider('oscDepth');  break;
+          }
+        }
+        if (data.channel === 3) {
+          switch (data.cc) {
+            case 1: setParam('maxAngle',  norm * 90);            syncSlider('maxAngle');  break;
+            case 2: setParam('maxRate',   0.005 + norm * 0.995); syncSlider('maxRate');   break;
+            case 3: setParam('smoothing', 0.01 + norm * 0.49);   syncSlider('smoothing'); break;
+            case 4: setParam('oscDepth',  norm * 3.14);          syncSlider('oscDepth');  break;
+            case 5: setParam('manualA',  (norm-0.5)*180);        syncSlider('manualA');   break;
+            case 6: setParam('manualB',  (norm-0.5)*180);        syncSlider('manualB');   break;
+          }
+        }
+      }
+
+    } catch(e) {}
+  };
+
+  // ── Panel ─────────────────────────────────────────
+
+  let panelOpen = true;
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    document.getElementById('panel').classList.toggle('closed', !panelOpen);
+    document.getElementById('panel-toggle').textContent = panelOpen ? '◂' : '▸';
+  }
+
+  let mode = 0;
+  function setMode(m) {
+    mode = m;
+    document.querySelectorAll('.btn').forEach((b, i) => b.classList.toggle('active', i === m));
+  }
+
+  // ═══════════════════════════════════════════════════
+  // LAYER MODES
+  // ═══════════════════════════════════════════════════
+
+  const layerState = {
+    A: { mode: 'still', rev: false, phase: 0, rotAngle: 0 },
+    B: { mode: 'still', rev: false, phase: 0, rotAngle: 0 },
+  };
+
+  function setLayerMode(layer, m) {
+    layerState[layer].mode     = m;
+    layerState[layer].phase    = 0;
+    layerState[layer].rotAngle = 0;
+    ['still','osc','rot'].forEach(x => {
+      const el = document.getElementById(`mode${layer}-${x}`);
+      if (el) el.classList.toggle('active', x === m);
+    });
+  }
+
+  function toggleRev(layer) {
+    layerState[layer].rev = !layerState[layer].rev;
+    const el = document.getElementById(`rev${layer}`);
+    if (el) el.classList.toggle('active', layerState[layer].rev);
+  }
+
+  function layerMotion(layer, dt) {
+    const s    = layerState[layer];
+    const rate = params.maxRate * (rateSrcKey === 'none' ? 0.1 : rateSignalSmoothed);
+    const dir  = s.rev ? -1 : 1;
+    if (s.mode === 'still') return 0;
+    if (s.mode === 'osc') {
+      s.phase += rate * dt * Math.PI * 2 * dir;
+      return Math.sin(s.phase) * params.oscDepth;
+    }
+    if (s.mode === 'rot') {
+      s.rotAngle += rate * dt * Math.PI * 2 * dir * 0.5;
+      return s.rotAngle;
+    }
+    return 0;
+  }
+
+  // ═══════════════════════════════════════════════════
+  // DERIVED SIGNALS — emitted back to router at 20Hz
+  // ═══════════════════════════════════════════════════
+
+  const derived = {
+    phase: 0, interference: 0, beating: 0, rateOfChange: 0, prevAngleA: 0,
+  };
+
+  setInterval(() => {
+    if (ws.readyState !== 1 || !MY_IP) return;
+    [
+      { device: 'moire/phase',        value: derived.phase,        cc: 1 },
+      { device: 'moire/interference', value: derived.interference, cc: 2 },
+      { device: 'moire/beating',      value: derived.beating,      cc: 3 },
+      { device: 'moire/rate',         value: derived.rateOfChange, cc: 4 },
+    ].forEach(({ device, value, cc }) => {
+      ws.send(JSON.stringify({
+        type: 'midi_upstream', device,
+        source: MY_IP, msgType: 'cc', channel: 6, cc,
+        rawValue: value,
+        value: Math.round(Math.max(0, Math.min(1, value)) * 127),
+        raw: [0xB5, cc, Math.round(value * 127)]
+      }));
+    });
+  }, 50);
+
+  // ═══════════════════════════════════════════════════
+  // P5
+  // ═══════════════════════════════════════════════════
+
+  new p5((p) => {
+    let lastTime   = 0;
+    let smoothA    = 0;
+    let smoothB    = 0;
+    let smoothOffA = 0;
+    let smoothOffB = 0;
+
+    p.setup = () => {
+      p.createCanvas(p.windowWidth, p.windowHeight).parent('canvas-container');
+      p.colorMode(p.HSB, 360, 100, 100, 100);
+      p.frameRate(60);
+      lastTime = performance.now();
+    };
+    p.windowResized = () => p.resizeCanvas(p.windowWidth, p.windowHeight);
+
+    function drawLines(angle, sp, th, col) {
+      const cx = p.width/2, cy = p.height/2;
+      const diag  = Math.sqrt(p.width*p.width + p.height*p.height);
+      const count = Math.ceil(diag/sp) + 2;
+      p.noStroke(); p.fill(col.h, col.s, col.b, col.o);
+      p.push(); p.translate(cx, cy); p.rotate(angle);
+      for (let i = -count; i <= count; i++) p.rect(i*sp - th/2, -diag, th, diag*2);
+      p.pop();
+    }
+
+    function drawGrid(angle, sp, th, col) {
+      const cx = p.width/2, cy = p.height/2;
+      const diag  = Math.sqrt(p.width*p.width + p.height*p.height);
+      const count = Math.ceil(diag/sp) + 2;
+      p.noStroke(); p.fill(col.h, col.s, col.b, col.o);
+      p.push(); p.translate(cx, cy); p.rotate(angle);
+      for (let i = -count; i <= count; i++) {
+        p.rect(i*sp - th/2, -diag, th, diag*2);
+        p.rect(-diag, i*sp - th/2, diag*2, th);
+      }
+      p.pop();
+    }
+
+    function drawRings(offset, sp, th, col) {
+      const cx = p.width/2, cy = p.height/2;
+      const diag  = Math.sqrt(p.width*p.width + p.height*p.height);
+      const rings = Math.ceil(diag/sp) + 1;
+      p.noFill(); p.stroke(col.h, col.s, col.b, col.o); p.strokeWeight(th*0.35);
+      for (let i = 1; i <= rings; i++) p.ellipse(cx+offset, cy, i*sp*2, i*sp*2);
+    }
+
+    function drawStatus(angA, angB) {
+      p.noStroke(); p.fill(0, 0, 0, 14);
+      p.textFont('Courier New'); p.textSize(9); p.textAlign(p.CENTER);
+      const dA = (angA * 180/Math.PI).toFixed(1);
+      const dB = (angB * 180/Math.PI).toFixed(1);
+      p.text(`A ${dA}°  ·  B ${dB}°`, p.width/2, p.height - 50);
+      document.getElementById('hud-angleA').textContent = dA + '°';
+      document.getElementById('hud-angleB').textContent = dB + '°';
+      document.getElementById('hud-rate').textContent   =
+        (params.maxRate * rateSignalSmoothed).toFixed(3);
+    }
+
+    p.draw = () => {
+      const now = performance.now();
+      const dt  = Math.min((now - lastTime)/1000, 0.1);
+      lastTime  = now;
+
+      const motionA = layerMotion('A', dt);
+      const motionB = layerMotion('B', dt);
+
+      const maxAngleRad = params.maxAngle * Math.PI/180;
+      const manualARad  = params.manualA  * Math.PI/180;
+      const manualBRad  = params.manualB  * Math.PI/180;
+      const signalAngle = angleSrcKey === 'none' ? 0 : angleSignalSmoothed;
+
+      const s = params.smoothing * 4;
+
+      let targetA = manualARad + signalAngle * maxAngleRad + motionA;
+      let targetB = manualBRad - signalAngle * maxAngleRad + motionB;
+
+      if (layerState.A.mode === 'rot') smoothA = targetA;
+      else smoothA += (targetA - smoothA) * s;
+
+      if (layerState.B.mode === 'rot') smoothB = targetB;
+      else smoothB += (targetB - smoothB) * s;
+
+      // Rings offset
+      const minDim   = Math.min(p.width, p.height);
+      const maxOffPx = minDim * params.maxAngle/90 * 0.35;
+      const manualOffA = (params.manualA/90) * minDim * 0.3;
+      const manualOffB = (params.manualB/90) * minDim * 0.3;
+      const targOffA = manualOffA + signalAngle *  maxOffPx + motionA * minDim * 0.3;
+      const targOffB = manualOffB + signalAngle * -maxOffPx + motionB * minDim * 0.3;
+      smoothOffA += (targOffA - smoothOffA) * s;
+      smoothOffB += (targOffB - smoothOffB) * s;
+
+      const sp = params.spacing;
+      const th = params.thick;
+
+      p.background(colors.bg.h, colors.bg.s, colors.bg.b);
+
+      switch (mode) {
+        case 0: drawLines(smoothA, sp, th, colors.layerA); drawLines(smoothB, sp, th, colors.layerB); break;
+        case 1: drawGrid(smoothA,  sp, th, colors.layerA); drawGrid(smoothB,  sp, th, colors.layerB); break;
+        case 2: drawRings(smoothOffA, sp, th, colors.layerA); drawRings(smoothOffB, sp, th, colors.layerB); break;
+      }
+
+      drawStatus(smoothA, smoothB);
+
+      // Update derived signals
+      derived.phase        = (Math.sin(layerState.A.phase) + 1) / 2;
+      derived.interference = Math.abs(Math.cos((smoothA - smoothB) * 2));
+      derived.beating      = (Math.sin(layerState.A.phase) * Math.sin(layerState.B.phase) + 1) / 2;
+      const roc            = Math.abs(smoothA - derived.prevAngleA) / Math.max(dt, 0.001) / 10;
+      derived.rateOfChange = Math.min(1, roc);
+      derived.prevAngleA   = smoothA;
+
+      if (params.blur > 0) p.filter(p.BLUR, params.blur);
+    };
+  });
+  </script>
+</body>
+</html>

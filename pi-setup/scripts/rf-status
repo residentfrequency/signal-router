@@ -1,0 +1,109 @@
+#!/bin/bash
+echo "=== Resident Frequency Status ==="
+echo ""
+
+# Services
+systemctl is-active --quiet theremin  && echo "✓ Sensor (theremin)"  || echo "✗ Sensor (theremin) — run: sudo systemctl start theremin"
+systemctl is-active --quiet router    && echo "✓ Router"              || echo "✗ Router — run: sudo systemctl start router"
+systemctl is-active --quiet cloudflared && echo "✓ Cloudflare tunnel" || echo "✗ Cloudflare tunnel (optional)"
+
+echo ""
+echo "=== Network ==="
+
+# WiFi
+if systemctl is-active --quiet hostapd; then
+    SSID=$(grep '^ssid=' /etc/hostapd/hostapd.conf | cut -d= -f2)
+    echo "WiFi: ACCESS POINT — $SSID"
+    echo "  AP address: 192.168.4.1"
+    echo "  Clients connect to: ResidentFrequency"
+else
+    SSID=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
+    WIFI_IP=$(ip addr show wlan0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+    if [ -n "$SSID" ] && [ -n "$WIFI_IP" ]; then
+        # Test actual internet connectivity
+        ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1 && INTERNET="internet ✓" || INTERNET="no internet ✗"
+        echo "WiFi: CLIENT — $SSID ($WIFI_IP) — $INTERNET"
+    elif [ -n "$SSID" ]; then
+        echo "WiFi: connecting to $SSID (no IP yet)"
+    else
+        echo "WiFi: DISCONNECTED — run: wifi-mode \"NetworkName\" \"password\""
+    fi
+fi
+
+# Ethernet
+ETH_CARRIER=$(cat /sys/class/net/eth0/carrier 2>/dev/null)
+ETH_IP=$(ip addr show eth0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+if [ "$ETH_CARRIER" = "1" ]; then
+    LEASES=$(cat /var/lib/misc/dnsmasq.leases 2>/dev/null | wc -l)
+    echo "Ethernet: CABLE CONNECTED — $ETH_IP — $LEASES client(s)"
+    [ "$LEASES" -eq 0 ] && echo "  No clients — set Mac ethernet IP manually to 10.0.0.2 / 255.255.255.0"
+elif [ -n "$ETH_IP" ]; then
+    echo "Ethernet: NO CABLE (IP retained from last session: $ETH_IP)"
+else
+    echo "Ethernet: DOWN"
+fi
+
+# Tailscale
+TAILSCALE_IP=$(tailscale ip 2>/dev/null | head -1)
+if [ -n "$TAILSCALE_IP" ]; then
+    echo "Tailscale: $TAILSCALE_IP"
+else
+    echo "Tailscale: not connected"
+fi
+
+echo ""
+echo "=== Connect at ==="
+
+# Only show URLs that are actually reachable
+WIFI_IP=$(ip addr show wlan0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+ETH_IP=$(ip addr show eth0 | grep "inet " | awk '{print $2}' | cut -d/ -f1)
+TAILSCALE_IP=$(tailscale ip 2>/dev/null | head -1)
+ACTUAL_SSID=$(nmcli -t -f active,ssid dev wifi | grep '^yes' | cut -d: -f2)
+
+echo "Local aliases:"
+echo "  https://adrian-pi.local:3000 (same local network)"
+echo "  https://adrian-pi:3000  (Tailscale MagicDNS)"
+echo "  https://adrian-pi.tailc1f637.ts.net:3000  (Tailscale full hostname)"
+
+echo ""
+echo "By IP:"
+[ "$ETH_CARRIER" = "1" ]   && echo "  Ethernet:  https://10.0.0.1:3000  (share with anyone on the switch)"
+[ -n "$WIFI_IP" ]           && echo "  WiFi:      https://$WIFI_IP:3000  (share with anyone on $ACTUAL_SSID)"
+[ -n "$TAILSCALE_IP" ]      && echo "  Tailscale: https://$TAILSCALE_IP:3000  (remote, Tailscale required)"
+[ -n "$TAILSCALE_IP" ]      && echo "  Public:    https://rf.postoccupancy.com  (anyone, internet required)"
+
+echo ""
+echo "=== Memory ==="
+free -m | awk 'NR==2{printf "RAM: %sMB used / %sMB total (%.0f%% used)\n", $3, $2, $3/$2*100}'
+
+echo ""
+echo "=== Processes ==="
+VSCODE=$(ps aux | grep vscode-server | grep -v grep | wc -l)
+if [ "$VSCODE" -gt 0 ]; then
+  VSCODE_MB=$(ps aux | grep vscode-server | grep -v grep | awk '{sum += $6} END {printf "%.0f", sum/1024}')
+  echo "⚠ VS Code Server ($VSCODE processes, ${VSCODE_MB}MB) — close Remote SSH to free RAM: pkill -9 -f vscode-server"
+fi
+
+ROUTER_PID=$(pgrep -f "node server.js")
+if [ -n "$ROUTER_PID" ]; then
+  ROUTER_MB=$(ps -p $ROUTER_PID -o rss= | awk '{printf "%.0f", $1/1024}')
+  echo "✓ Router (node server.js) PID $ROUTER_PID — ${ROUTER_MB}MB"
+else
+  echo "✗ Router not running — run: sudo systemctl start router"
+fi
+
+CLOUDFLARED_PID=$(pgrep cloudflared)
+if [ -n "$CLOUDFLARED_PID" ]; then
+  CF_MB=$(ps -p $CLOUDFLARED_PID -o rss= | awk '{printf "%.0f", $1/1024}')
+  echo "✓ cloudflared PID $CLOUDFLARED_PID — ${CF_MB}MB"
+else
+  echo "  cloudflared not running (optional — run: sudo systemctl start cloudflared)"
+fi
+
+THEREMIN_PID=$(pgrep -f "main.py")
+if [ -n "$THEREMIN_PID" ]; then
+  T_MB=$(ps -p $THEREMIN_PID -o rss= | awk '{printf "%.0f", $1/1024}')
+  echo "✓ Sensor (main.py) PID $THEREMIN_PID — ${T_MB}MB"
+else
+  echo "✗ Sensor not running — run: sudo systemctl start theremin"
+fi
