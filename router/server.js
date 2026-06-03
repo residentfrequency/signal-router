@@ -40,47 +40,6 @@ require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
-// ─── Routing config ───────────────────────────────────────────────────────────
-
-const ROUTING_FILE = './routing.json';
-
-function loadRouting() {
-  try {
-    return JSON.parse(fs.readFileSync(ROUTING_FILE, 'utf8'));
-  } catch (e) {
-    return {};  // no hardcoded defaults — all routing configured in UI
-  }
-}
-
-function saveRouting() {
-  fs.writeFileSync(ROUTING_FILE, JSON.stringify(routing, null, 2));
-}
-
-const routing = loadRouting();
-
-// ─── HTTP routes ──────────────────────────────────────────────────────────────
-
-app.get('/routing', (req, res) => res.sendFile(__dirname + '/public/routing.html'));
-app.get('/api/routing', (req, res) => res.json(routing));
-
-app.post('/api/routing/:key', (req, res) => {
-  const key = decodeURIComponent(req.params.key);
-  if (!routing[key]) routing[key] = {};  // create if not exists
-  Object.assign(routing[key], req.body);
-  saveRouting();
-  broadcast({ type: 'routing', routing });
-  res.json({ ok: true, routing: routing[key] });
-});
-
-app.post('/api/sensor/environment', (req, res) => {
-  const { temperature, humidity } = req.body;
-  broadcast({ type: 'json', device: 'json/environment/temperature',
-    value: temperature, source: 'adrian-pi' });
-  broadcast({ type: 'json', device: 'json/environment/humidity',
-    value: humidity, source: 'adrian-pi' });
-  res.json({ ok: true });
-});
-
 // ─── State ────────────────────────────────────────────────────────────────────
 
 const state = { distance: 0, rate: 0 };
@@ -151,12 +110,6 @@ function sendToSC(address, ...args) {
 }
 
 // ─── OSC client registry ──────────────────────────────────────────────────────
-//
-// oscReceiveClients — IPs the router sends OSC to on port 9000
-// oscSendClients   — IPs allowed to send OSC inbound to the router on port 5005
-//
-// Pi-local addresses are always in oscSendClients so sensors always work.
-// Other IPs are added only when their browser toggles the SEND button.
 
 const OSC_OUT_PORT = 9000;
 const OSC_IN_PORT  = 5005;
@@ -179,7 +132,6 @@ function broadcastOSC(data) {
   if (oscReceiveClients.size === 0) return;
 
   if (data.type === 'osc' || data.type === 'json') {
-    // Use device field as OSC address, normalize if min/max available
     const addr = `/${data.device}`;
     const norm = (data.min != null && data.max != null && data.max !== data.min)
       ? Math.max(0, Math.min(1, (data.value - data.min) / (data.max - data.min)))
@@ -189,7 +141,7 @@ function broadcastOSC(data) {
   } else if (data.type === 'midi') {
     const dev = (data.device || 'midi').replace(/\W+/g, '_');
     if (data.msgType === 'cc') {
-      const norm = data.rawValue ?? data.value / 127;
+      const norm = data.value / 127;
       const addr = `/midi/${dev}/ch${data.channel}/cc${data.cc}`;
       for (const ip of oscReceiveClients) sendOSCToClient(ip, addr, parseFloat(norm), parseInt(data.value));
     } else if (data.msgType === 'noteon') {
@@ -209,15 +161,16 @@ function broadcast(data) {
   broadcastOSC(data);
 }
 
-// ─── OSC inbound listener — raw dgram so we get sender IP ────────────────────
+// ─── OSC inbound listener ─────────────────────────────────────────────────────
 
 const oscInSocket = dgram.createSocket('udp4');
 
 oscInSocket.on('message', (buf, rinfo) => {
-  const senderIp = rinfo.address.replace(/^::ffff:/, '');
+  const rawIp    = rinfo.address.replace(/^::ffff:/, '');
+  const senderIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
 
-  if (!oscSendClients.has(senderIp)) {
-    console.log(`OSC from unregistered IP ${senderIp} — ignored. Toggle SEND ON to allow.`);
+  if (!oscSendClients.has(rawIp) && !oscSendClients.has(senderIp)) {
+    console.log(`OSC from unregistered IP ${rawIp} — ignored. Toggle SEND ON to allow.`);
     return;
   }
 
@@ -230,23 +183,18 @@ oscInSocket.on('message', (buf, rinfo) => {
     const name  = parts[1];
     const param = parts[2];
     const value = msg.args[0];
-    const key   = `osc/${name}/${param}`;   // matches routing.json key format
-    const route = routing[key] || {};
+    const key   = `osc/${name}/${param}`;
 
     broadcast({
       type: 'osc',
       device: key,
       name, param, value,
       source: senderIp,
-      channel: route.channel, cc: route.cc,
-      enabled: route.enabled ?? true,
-      min: route.min, max: route.max
+      enabled: true
     });
-
     sendToSC(msg.address, ...msg.args);
 
   } else {
-    // Unknown OSC address — broadcast as-is
     const value = msg.args[0];
     const key   = `osc/${senderIp}${msg.address}`;
 
@@ -257,7 +205,6 @@ oscInSocket.on('message', (buf, rinfo) => {
       source: senderIp,
       enabled: true
     });
-
     sendToSC(msg.address, ...msg.args);
   }
 });
@@ -268,8 +215,7 @@ oscInSocket.bind(OSC_IN_PORT, '0.0.0.0', () => {
 
 // ─── MIDI UDP receiver — from controllers/main.py on port 5006 ───────────────
 
-const controllerRouting = {};
-const midiSocket        = dgram.createSocket('udp4');
+const midiSocket = dgram.createSocket('udp4');
 
 midiSocket.on('message', (msg, rinfo) => {
   const separator = msg.indexOf('|'.charCodeAt(0));
@@ -279,18 +225,11 @@ midiSocket.on('message', (msg, rinfo) => {
   const midiBytes = [...msg.slice(separator + 1)];
   if (midiBytes.length < 3) return;
 
-  if (!controllerRouting[device]) {
-    controllerRouting[device] = { enabled: true };
-    console.log(`New device: ${device}`);
-    broadcast({ type: 'devices', devices: Object.keys(controllerRouting) });
-  }
-  if (!controllerRouting[device].enabled) return;
-
   const status  = midiBytes[0];
   const msgType = status & 0xF0;
   const channel = (status & 0x0F) + 1;
 
-  let decoded = { type: 'midi', device: `midi/${device}`, channel, raw: midiBytes };
+  let decoded = { type: 'midi', device: `midi/${device}`, channel, raw: midiBytes, source: os.hostname() };
 
   if      (msgType === 0xB0) { decoded.msgType = 'cc';        decoded.cc   = midiBytes[1]; decoded.value    = midiBytes[2]; }
   else if (msgType === 0x90) { decoded.msgType = 'noteon';    decoded.note = midiBytes[1]; decoded.velocity = midiBytes[2]; }
@@ -325,15 +264,14 @@ wss.on('connection', (ws, req) => {
     networkSsid: net.ssid
   }));
   ws.send(JSON.stringify({ type: 'state', state }));
-  ws.send(JSON.stringify({ type: 'routing', routing }));
   ws.send(JSON.stringify({
     type: 'client_info',
     ip: clientIp,
     tabCount: connectionsByIp.get(clientIp).size,
-    oscOutPort:     OSC_OUT_PORT,
-    oscInPort:      OSC_IN_PORT,
-    oscReceive:     oscReceiveClients.has(clientIp),
-    oscSend:        oscSendClients.has(clientIp),
+    oscOutPort:      OSC_OUT_PORT,
+    oscInPort:       OSC_IN_PORT,
+    oscReceive:      oscReceiveClients.has(clientIp),
+    oscSend:         oscSendClients.has(clientIp),
     isServerMachine: rawIp === '127.0.0.1' || rawIp === '::1' ||
       Object.values(os.networkInterfaces()).flat().some(i => i?.address === rawIp)
   }));
@@ -344,11 +282,7 @@ wss.on('connection', (ws, req) => {
       const data = JSON.parse(message.toString());
 
       if (data.type === 'osc_toggle_receive') {
-        if (data.enabled) {
-          oscReceiveClients.add(clientIp);
-        } else {
-          oscReceiveClients.delete(clientIp);
-        }
+        data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
         broadcastClientStats();
         return;
       }
@@ -356,17 +290,16 @@ wss.on('connection', (ws, req) => {
       if (data.type === 'osc_toggle_send') {
         if (data.enabled) {
           oscSendClients.add(clientIp);
-        } else {
-          if (clientIp !== '127.0.0.1' && clientIp !== '10.0.0.1') {
-            oscSendClients.delete(clientIp);
-          }
+        } else if (clientIp !== '127.0.0.1' && clientIp !== '10.0.0.1') {
+          oscSendClients.delete(clientIp);
         }
         broadcastClientStats();
         return;
       }
 
-      // midi — from browser WebMIDI (IAC Driver, loopMIDI, USB controllers via browser)
       if (data.type === 'midi') {
+        // attach source IP so client can group by section
+        data.source = clientIp;
         wss.clients.forEach(client => {
           if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
         });
@@ -374,8 +307,9 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // json — browser-originated float signals (mic, moire derived, esp32 via Supabase)
       if (data.type === 'json') {
+        // attach source IP so client can group by section
+        data.source = clientIp;
         wss.clients.forEach(client => {
           if (client !== ws && client.readyState === 1) client.send(JSON.stringify(data));
         });
@@ -456,6 +390,11 @@ function getNetworkMode() {
   return { mode: 'unknown', ssid: '' };
 }
 
+// ─── HTTP routes ──────────────────────────────────────────────────────────────
+
+app.use(express.json());
+app.get('/api/status', (req, res) => res.json({ ok: true, hostname: os.hostname() }));
+
 // ─── Start server ─────────────────────────────────────────────────────────────
 
 const PORT = 3000;
@@ -484,22 +423,9 @@ setInterval(async () => {
     if (error) { console.error('Supabase error:', error.message); return; }
 
     if (data?.[0]) {
-      const routeC  = routing['json/esp32-am2320/temp_c'] || {};
-      const routeF  = routing['json/esp32-am2320/temp_f'] || {};
-      const routeRH = routing['json/esp32-am2320/rh']     || {};
-
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c',
-        value: data[0].temp_c, source: 'adrian-pi',
-        channel: routeC.channel, cc: routeC.cc, enabled: routeC.enabled,
-        min: routeC.min, max: routeC.max });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f',
-        value: data[0].temp_f, source: 'adrian-pi',
-        channel: routeF.channel, cc: routeF.cc, enabled: routeF.enabled,
-        min: routeF.min, max: routeF.max });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/rh',
-        value: data[0].rh, source: 'adrian-pi',
-        channel: routeRH.channel, cc: routeRH.cc, enabled: routeRH.enabled,
-        min: routeRH.min, max: routeRH.max });
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c', value: data[0].temp_c, source: os.hostname() });
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f', value: data[0].temp_f, source: os.hostname() });
+      broadcast({ type: 'json', device: 'json/esp32-am2320/rh',     value: data[0].rh,     source: os.hostname() });
     }
   } catch (e) {
     console.error('Error fetching from Supabase:', e.message);

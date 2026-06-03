@@ -1,1050 +1,775 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="utf-8">
-  <title>Resident Frequency</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      background: #0a0a0a;
-      color: #00ff88;
-      font-family: monospace;
-      padding: 1em;
-      font-size: 14px;
-    }
-    h1 { font-size: 1em; letter-spacing: 0.2em; opacity: 0.5; margin-bottom: 0.5em; }
-    h2 { font-size: 0.75em; letter-spacing: 0.15em; opacity: 0.4; margin: 1.5em 0 0.5em; }
-    h3 { font-size: 0.7em; letter-spacing: 0.1em; opacity: 0.3; margin: 1em 0 0.3em; }
-
-    .info-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.5em;
-      margin-bottom: 1em;
-      font-size: 0.75em;
-    }
-    .info-box {
-      background: #111;
-      padding: 0.5em 0.8em;
-      border: 1px solid #1a1a1a;
-    }
-    .info-label { opacity: 0.4; font-size: 0.85em; margin-bottom: 0.2em; }
-    .info-value { color: #88ffcc; margin-bottom: 0.2em; }
-
-    .status-bar {
-      display: flex;
-      gap: 1.5em;
-      font-size: 0.7em;
-      margin-bottom: 1em;
-    }
-    .connected { color: #00ff88; }
-    .disconnected { color: #ff4444; }
-    .neutral { opacity: 0.4; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-      margin-bottom: 0.5em;
-    }
-    th {
-      text-align: left;
-      font-size: 0.65em;
-      opacity: 0.35;
-      padding: 0.3em 0.4em;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    td {
-      padding: 0.25em 0.4em;
-      border-top: 1px solid #111;
-      overflow: hidden;
-      white-space: nowrap;
-      font-size: 0.8em;
-    }
-    input[type=number] {
-      background: #0a0a0a;
-      color: #00ff88;
-      border: 1px solid #1a1a1a;
-      padding: 0.15em;
-      width: 3.2em;
-      font-family: monospace;
-      text-align: center;
-      font-size: 0.85em;
-    }
-    input[type=number]:focus { border-color: #00ff88; outline: none; }
-    input[type=number]:disabled { opacity: 0.2; }
-
-    .btn {
-      background: #0a0a0a;
-      color: #00ff88;
-      border: 1px solid #1a1a1a;
-      padding: 0.15em 0.5em;
-      font-family: monospace;
-      font-size: 0.75em;
-      cursor: pointer;
-      min-width: 2.8em;
-      text-align: center;
-    }
-    .btn.on { border-color: #00ff88; background: #001a0d; }
-    .btn.off { opacity: 0.3; }
-    .btn:hover { border-color: #00ff88; }
-
-    .val { color: #88ffcc; }
-    .dim { opacity: 0.35; }
-
-    details { margin-top: 2em; font-size: 0.75em; }
-    summary { cursor: pointer; opacity: 0.25; letter-spacing: 0.1em; padding: 0.5em 0; }
-    .help-content { background: #111; padding: 1em; margin-top: 0.5em; line-height: 1.8em; }
-    .help-content strong { color: #00ff88; }
-    .help-content pre {
-      background: #0a0a0a;
-      padding: 0.6em 0.8em;
-      margin: 0.4em 0;
-      font-size: 0.85em;
-      overflow-x: auto;
-      border: 1px solid #1a1a1a;
-      white-space: pre;
-      line-height: 1.5em;
-    }
-    .help-content code {
-      background: #0a0a0a;
-      padding: 0.1em 0.3em;
-      font-size: 0.9em;
-    }
-    hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
-  </style>
+<meta charset="utf-8">
+<title>Resident Frequency</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0a0a0a;
+  color: #00ff88;
+  font-family: monospace;
+  padding: 1em;
+  font-size: 14px;
+}
+h1 { font-size: 1em; letter-spacing: 0.2em; opacity: 0.5; margin-bottom: 0.5em; }
+h2 { font-size: 0.75em; letter-spacing: 0.15em; opacity: 0.4; margin: 1.5em 0 0.5em; }
+h3 { font-size: 0.7em; letter-spacing: 0.1em; opacity: 0.3; margin: 1em 0 0.3em; }
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5em;
+  margin-bottom: 1em;
+  font-size: 0.75em;
+}
+.info-box {
+  background: #111;
+  padding: 0.5em 0.8em;
+  border: 1px solid #1a1a1a;
+}
+.info-label { opacity: 0.4; font-size: 0.85em; margin-bottom: 0.2em; }
+.info-value { color: #88ffcc; margin-bottom: 0.2em; }
+.status-bar {
+  display: flex;
+  gap: 1.5em;
+  font-size: 0.7em;
+  margin-bottom: 1em;
+}
+.connected    { color: #00ff88; }
+.disconnected { color: #ff4444; }
+.neutral      { opacity: 0.4; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  margin-bottom: 0.5em;
+}
+th {
+  text-align: left;
+  font-size: 0.65em;
+  opacity: 0.35;
+  padding: 0.3em 0.4em;
+  border-bottom: 1px solid #1a1a1a;
+}
+td {
+  padding: 0.25em 0.4em;
+  border-top: 1px solid #111;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.8em;
+}
+input[type=number] {
+  background: #0a0a0a;
+  color: #00ff88;
+  border: 1px solid #1a1a1a;
+  padding: 0.15em;
+  width: 3.2em;
+  font-family: monospace;
+  text-align: center;
+  font-size: 0.85em;
+}
+input[type=number]:focus  { border-color: #00ff88; outline: none; }
+input[type=number]:disabled { opacity: 0.2; }
+.btn {
+  background: #0a0a0a;
+  color: #00ff88;
+  border: 1px solid #1a1a1a;
+  padding: 0.15em 0.5em;
+  font-family: monospace;
+  font-size: 0.75em;
+  cursor: pointer;
+  min-width: 2.8em;
+  text-align: center;
+}
+.btn.on  { border-color: #00ff88; background: #001a0d; }
+.btn.off { opacity: 0.3; }
+.btn:hover { border-color: #00ff88; }
+.val { color: #88ffcc; }
+.dim { opacity: 0.35; }
+details { margin-top: 2em; font-size: 0.75em; }
+summary { cursor: pointer; opacity: 0.25; letter-spacing: 0.1em; padding: 0.5em 0; }
+.help-content { background: #111; padding: 1em; margin-top: 0.5em; line-height: 1.8em; }
+.help-content strong { color: #00ff88; }
+.help-content pre {
+  background: #0a0a0a;
+  padding: 0.6em 0.8em;
+  margin: 0.4em 0;
+  font-size: 0.85em;
+  overflow-x: auto;
+  border: 1px solid #1a1a1a;
+  white-space: pre;
+  line-height: 1.5em;
+}
+.help-content code {
+  background: #0a0a0a;
+  padding: 0.1em 0.3em;
+  font-size: 0.9em;
+}
+hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
+</style>
 </head>
 <body>
-  <h1>RESIDENT FREQUENCY</h1>
 
-  <div class="status-bar">
-    <span class="neutral" id="ws-status">connecting...</span>
-    <span class="neutral" id="midi-status">WebMIDI not initialized</span>
-    <span class="neutral" id="osc-status">OSC :9000</span>
+<h1>RESIDENT FREQUENCY</h1>
+
+<div class="status-bar">
+  <span class="neutral" id="ws-status">connecting...</span>
+  <span class="neutral" id="midi-status">WebMIDI not initialized</span>
+  <span class="neutral" id="osc-status">OSC :9000</span>
+</div>
+
+<div class="info-grid">
+  <div class="info-box">
+    <div class="info-label">THIS CLIENT</div>
+    <div class="info-value" id="client-name">detecting...</div>
+    <div class="dim" id="client-connection" style="font-size:0.8em"></div>
+    <div class="dim" id="tab-count" style="font-size:0.8em"></div>
   </div>
-
-  <div class="info-grid">
-    <div class="info-box">
-      <div class="info-label">THIS CLIENT</div>
-      <div class="info-value" id="client-name">detecting...</div>
-      <div class="dim" id="client-connection" style="font-size:0.8em"></div>
-      <div class="dim" id="tab-count" style="font-size:0.8em"></div>
-    </div>
-    <div class="info-box">
-      <div class="info-label">ROUTER SERVER</div>
-      <div class="info-value" id="server-name">detecting...</div>
-      <div class="dim" id="server-wifi" style="font-size:0.8em"></div>
-      <div class="dim" style="font-size:0.8em"><span id="client-count"></span></div>
-    </div>
+  <div class="info-box">
+    <div class="info-label">ROUTER SERVER</div>
+    <div class="info-value" id="server-name">detecting...</div>
+    <div class="dim" id="server-wifi" style="font-size:0.8em"></div>
+    <div class="dim" style="font-size:0.8em"><span id="client-count"></span></div>
   </div>
+</div>
 
-  <h2>LOCAL OSC PORTS</h2>
-  <table id="osc-ports-table">
-    <tr>
-      <th style="width:40%">PORT</th>
-      <th style="width:15%">RECEIVE</th>
-      <th style="width:15%">SEND</th>
-      <th style="width:30%">STATUS</th>
-    </tr>
-  </table>
+<h2>LOCAL OSC PORTS</h2>
+<table id="osc-ports-table">
+  <tr>
+    <th style="width:40%">PORT</th>
+    <th style="width:15%">RECEIVE</th>
+    <th style="width:15%">SEND</th>
+    <th style="width:30%">STATUS</th>
+  </tr>
+</table>
 
-  <h2>LOCAL MIDI PORTS</h2>
-  <table id="midi-ports-table">
-    <tr>
-      <th style="width:40%">PORT</th>
-      <th style="width:15%">RECEIVE</th>
-      <th style="width:15%">SEND</th>
-      <th style="width:30%">STATUS</th>
-    </tr>
-  </table>
+<h2>LOCAL MIDI PORTS</h2>
+<table id="midi-ports-table">
+  <tr>
+    <th style="width:40%">PORT</th>
+    <th style="width:15%">RECEIVE</th>
+    <th style="width:15%">SEND</th>
+    <th style="width:30%">STATUS</th>
+  </tr>
+</table>
 
-  <h2>CLIENT ROUTES ON SERVER</h2>
-  <div id="signals-container"></div>
+<h2>CLIENT ROUTES ON SERVER</h2>
+<div id="signals-container"></div>
 
-  <details id="setup-help">
-    <summary>SETUP HELP</summary>
-    <div class="help-content">
-
-      <strong>ALL PLATFORMS</strong><br>
-      Use Chrome — Firefox and Safari do not support WebMIDI<br>
-      Accept the certificate warning on first visit<br>
-      Allow MIDI access when Chrome asks<br>
-
-      <hr class="dim">
-      <strong>MAC</strong><br>
-      1. Open Audio MIDI Setup (Spotlight)<br>
-      2. Window → Show MIDI Studio<br>
-      3. Double-click IAC Driver → Device is online → add Bus<br>
-      4. Refresh page — IAC Driver appears in ports table<br>
-      5. In Live: Preferences → MIDI → IAC → Track ON, Remote ON<br>
-
-      <hr class="dim">
-      <strong>WINDOWS</strong><br>
-      1. Download loopMIDI from tobias-erichsen.de<br>
-      2. Install, open, click + to create a port<br>
-      3. Refresh page — loopMIDI port appears<br>
-
-      <hr class="dim">
-      <strong>iPAD / iPHONE</strong><br>
-      Install WebMIDI Browser from App Store.<br>
-
-      <hr class="dim">
-      <strong>SIGNAL FORMAT — WebSocket JSON</strong><br>
-      Connect to <code>wss://rf.postoccupancy.com</code> or <code>wss://10.0.0.1:3000</code><br>
-      Every broadcast is a JSON object. Two types:<br><br>
-
-      <strong>osc</strong> — physical sensor, originated as OSC UDP:<br>
-      <pre>{
+<details id="setup-help">
+  <summary>SETUP HELP</summary>
+  <div class="help-content">
+    <strong>ALL PLATFORMS</strong><br>
+    Use Chrome — Firefox and Safari do not support WebMIDI<br>
+    Accept the certificate warning on first visit<br>
+    Allow MIDI access when Chrome asks<br>
+    <hr class="dim">
+    <strong>MAC</strong><br>
+    1. Open Audio MIDI Setup (Spotlight)<br>
+    2. Window → Show MIDI Studio<br>
+    3. Double-click IAC Driver → Device is online → add Bus<br>
+    4. Refresh page — IAC Driver appears in ports table<br>
+    5. In Live: Preferences → MIDI → IAC → Track ON, Remote ON<br>
+    <hr class="dim">
+    <strong>WINDOWS</strong><br>
+    1. Download loopMIDI from tobias-erichsen.de<br>
+    2. Install, open, click + to create a port<br>
+    3. Refresh page — loopMIDI port appears<br>
+    <hr class="dim">
+    <strong>SIGNAL FORMAT — WebSocket JSON</strong><br>
+    Connect to <code>wss://rf.postoccupancy.com</code> or <code>wss://10.0.0.1:3000</code><br><br>
+    <strong>osc</strong> — physical sensor:<br>
+    <pre>{
   "type": "osc",
   "device": "osc/pi-hc-sr04/distance-cm",
   "value": 142.3,
-  "min": 5,
-  "max": 400
+  "source": "adrian-pi"
 }</pre>
-
-      <strong>json</strong> — browser or HTTP origin, full float:<br>
-      <pre>{
+    <strong>json</strong> — browser or HTTP origin, float 0–1:<br>
+    <pre>{
   "type": "json",
-  "device": "json/esp32-am2320/temp_c",
-  "value": 23.45
+  "device": "json/moire/interference",
+  "value": 0.847,
+  "source": "192.168.0.5"
 }</pre>
-
-      <strong>midi</strong> — MIDI controller via WebMIDI API or Pi USB:<br>
-      <pre>{
+    <strong>midi</strong> — MIDI controller via WebMIDI API or Pi USB:<br>
+    <pre>{
   "type": "midi",
-  "device": "midi/Teensy MIDI",
+  "device": "IAC Driver Bus 1",
   "msgType": "cc",
-  "channel": 3,
+  "channel": 1,
   "cc": 1,
   "value": 64
 }</pre>
+    <hr class="dim">
+    <strong>OSC — automatic on port 9000</strong><br>
+    Every connected browser that has RECEIVE ON gets all signals as OSC UDP on port 9000.<br><br>
+    <strong>TouchDesigner:</strong> OSC In CHOP → port 9000<br>
+    <strong>VCV Rack:</strong> VCV OSC module → port 9000<br>
+    <strong>Max for Live:</strong> <code>udpreceive 9000</code><br>
+    <hr class="dim">
+    <strong>CHANNEL ASSIGNMENTS</strong><br>
+    Ch/CC assignments are saved in your browser's localStorage by device name.<br>
+    They persist across page refreshes and Pi reboots.<br>
+    To clear all assignments: open browser console and run <code>localStorage.clear()</code> then refresh.<br>
+  </div>
+</details>
 
-      <hr class="dim">
-      <strong>OSC — automatic on port 9000</strong><br>
-      Every connected browser client automatically receives all signals<br>
-      as OSC UDP on port 9000. Open your OSC listener on port 9000.<br><br>
+<script>
+// ═══════════════════════════════════════════════════
+// LOCALSTORAGE — ch/cc/min/max per device
+// key: "rf-assign-{deviceKey}"  value: {channel, cc, min, max}
+// ═══════════════════════════════════════════════════
 
-      OSC address format:<br>
-      <pre>/sensor/esp32-am2320/temp_c  23.45  0.845
-/midi/Teensy_MIDI/ch3/cc1    0.504  64
-/midi/mic-192_168_0_5/centroid  0.703  89</pre>
+const LS_PREFIX = 'rf-assign-';
 
-      Sensor messages: raw float value + normalized 0–1<br>
-      MIDI CC messages: normalized 0–1 + raw 0–127<br><br>
-
-      <strong>TouchDesigner:</strong> OSC In CHOP → port 9000<br>
-      <strong>VCV Rack:</strong> VCV OSC module → port 9000<br>
-      <strong>Max for Live:</strong> <code>udpreceive 9000</code><br>
-
-      <hr class="dim">
-      <strong>PYTHON — WebSocket JSON</strong><br>
-      <pre>pip install websockets</pre>
-      <pre>import asyncio, websockets, json
-
-async def listen():
-    url = "wss://rf.postoccupancy.com"
-    async with websockets.connect(url) as ws:
-        async for msg in ws:
-            data = json.loads(msg)
-            if data["type"] == "osc":
-                print(data["device"], data["value"])
-            elif data["type"] == "json":
-                print(data["device"], data["value"])
-            elif data["type"] == "midi":
-                print(data["device"], data["value"] / 127)
-
-asyncio.run(listen())</pre>
-
-      <hr class="dim">
-      <strong>PROCESSING / p5.js — WebSocket JSON</strong><br>
-      Browser p5.js (no library needed):<br>
-      <pre>const ws = new WebSocket('wss://rf.postoccupancy.com');
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  if (data.type === 'osc') {
-    // data.value is raw sensor value e.g. 142.3cm
-    // normalize: (data.value - data.min) / (data.max - data.min)
-  }
-  if (data.type === 'json') {
-    // data.value is float 0-1 already
-  }
-  if (data.type === 'midi') {
-    // data.value is 0-127, normalize: data.value / 127
-  }
-};</pre>
-
-      Desktop Processing — install WebSocket library via Sketch → Import Library:<br>
-      <pre>import websockets.*;
-WebsocketClient wsc;
-
-void setup() {
-  wsc = new WebsocketClient(this, "wss://rf.postoccupancy.com");
+function getAssignment(key) {
+  try {
+    return JSON.parse(localStorage.getItem(LS_PREFIX + key) || 'null') || {};
+  } catch { return {}; }
 }
 
-void webSocketEvent(String msg) {
-  JSONObject data = parseJSONObject(msg);
-  if (data.getString("type").equals("sensor")) {
-    float val = data.getFloat("value");
+function setAssignment(key, field, value) {
+  const a = getAssignment(key);
+  if (value === '' || value === null || isNaN(value)) {
+    delete a[field];
+  } else {
+    a[field] = value;
   }
-}</pre>
+  localStorage.setItem(LS_PREFIX + key, JSON.stringify(a));
+}
 
-      <hr class="dim">
-      <strong>SENDING OSC TO THE ROUTER</strong><br>
-      OSC UDP is accepted on port 5005 (local network only —<br>
-      not available via rf.postoccupancy.com).<br>
-      Use Tailscale for remote OSC send.<br>
-      Message format: <code>/sensor/name/param value</code><br>
-      e.g. <code>/sensor/kinect/x 0.42</code>
+// ═══════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════
 
-    </div>
-  </details>
+let midiAccess = null;
+let smoothed   = {};
+let MY_IP      = null;
 
-  <script>
-    // ═══════════════════════════════════════════════════
-    // STATE
-    // ═══════════════════════════════════════════════════
+const portState = loadPortState();
 
-    let midiAccess = null;
-    let routing = {};
-    let smoothed = {};
+function loadPortState() {
+  try { return JSON.parse(localStorage.getItem('rf-port-state') || '{}'); }
+  catch { return {}; }
+}
 
-    let MY_IP = null;
+const TAB_ID = Math.random().toString(36).slice(2);
+const bc     = new BroadcastChannel('rf-midi');
 
-    const portState = loadPortState();
-    function loadPortState() {
-      try { return JSON.parse(localStorage.getItem('rf-port-state') || '{}'); }
-      catch { return {}; }
+bc.onmessage = (e) => {
+  if (e.data.type === 'port-state-changed') {
+    Object.assign(portState, JSON.parse(localStorage.getItem('rf-port-state') || '{}'));
+    renderMidiPorts();
+    restoreInputListeners();
+  }
+};
+
+function savePortState() {
+  localStorage.setItem('rf-port-state', JSON.stringify(portState));
+  bc.postMessage({ type: 'port-state-changed', from: TAB_ID });
+}
+
+function isReceiving(portName) { return portState[portName]?.receive === true; }
+function isSending(portName)   { return portState[portName]?.send   === true; }
+
+function setPortReceive(portName, val) {
+  if (!portState[portName]) portState[portName] = {};
+  portState[portName].receive = val;
+  savePortState();
+}
+
+function setPortSend(portName, val) {
+  if (!portState[portName]) portState[portName] = {};
+  portState[portName].send = val;
+  savePortState();
+}
+
+// ═══════════════════════════════════════════════════
+// OSC PORT STATE
+// ═══════════════════════════════════════════════════
+
+const oscPortState = loadOSCPortState();
+
+function loadOSCPortState() {
+  try { return JSON.parse(localStorage.getItem('rf-osc-port-state') || '{}'); }
+  catch { return {}; }
+}
+
+function saveOSCPortState() {
+  localStorage.setItem('rf-osc-port-state', JSON.stringify(oscPortState));
+}
+
+function isOSCReceiving(port) { return oscPortState[port]?.receive === true; }
+function isOSCSending(port)   { return oscPortState[port]?.send   === true; }
+
+function setOSCReceive(port, val) {
+  if (!oscPortState[port]) oscPortState[port] = {};
+  oscPortState[port].receive = val;
+  saveOSCPortState();
+  if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_receive', enabled: val }));
+  renderOSCPorts();
+  updateOSCStatus();
+}
+
+function setOSCSend(port, val) {
+  if (!oscPortState[port]) oscPortState[port] = {};
+  oscPortState[port].send = val;
+  saveOSCPortState();
+  if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_send', enabled: val }));
+  renderOSCPorts();
+  updateOSCStatus();
+}
+
+function toggleOSCReceive(port) { setOSCReceive(port, !isOSCReceiving(port)); }
+function toggleOSCSend(port)    { setOSCSend(port,    !isOSCSending(port)); }
+
+function renderOSCPorts() {
+  const table = document.getElementById('osc-ports-table');
+  while (table.rows.length > 1) table.deleteRow(1);
+
+  const recv = isOSCReceiving(9000);
+  const send = isOSCSending(9000);
+  const row  = table.insertRow();
+  row.innerHTML = `
+    <td>:9000</td>
+    <td><button class="btn ${recv ? 'on' : 'off'}"
+        onclick="toggleOSCReceive(9000)">${recv ? 'ON' : 'OFF'}</button></td>
+    <td><button class="btn ${send ? 'on' : 'off'}"
+        onclick="toggleOSCSend(9000)">${send ? 'ON' : 'OFF'}</button></td>
+    <td class="dim">${recv && send ? 'recv :9000 · send → :5005' :
+                     recv          ? 'receiving from router :9000' :
+                     send          ? 'sending → 10.0.0.1:5005' : ''}</td>
+  `;
+}
+
+function updateOSCStatus() {
+  const recv = isOSCReceiving(9000);
+  const send = isOSCSending(9000);
+  document.getElementById('osc-status').textContent =
+    recv && send ? 'OSC :9000 recv+send' :
+    recv         ? 'OSC :9000 recv' :
+    send         ? 'OSC :5005 send' : 'OSC off';
+}
+
+renderOSCPorts();
+updateOSCStatus();
+
+// ═══════════════════════════════════════════════════
+// WebMIDI
+// ═══════════════════════════════════════════════════
+
+if (navigator.requestMIDIAccess) {
+  navigator.requestMIDIAccess().then(midi => {
+    midiAccess = midi;
+    renderMidiPorts();
+    restoreInputListeners();
+    setStatus('midi-status', 'WebMIDI ready');
+    midi.onstatechange = () => { renderMidiPorts(); restoreInputListeners(); };
+  }).catch(() => {
+    setStatus('midi-status', 'WebMIDI denied');
+    document.getElementById('setup-help').open = true;
+  });
+} else {
+  setStatus('midi-status', 'WebMIDI not supported — use Chrome');
+  document.getElementById('setup-help').open = true;
+}
+
+function restoreInputListeners() {
+  if (!midiAccess) return;
+  for (let [id, input] of midiAccess.inputs) {
+    input.onmidimessage = isSending(input.name)
+      ? (e) => handleLocalMidiInput(e, input.name)
+      : null;
+  }
+}
+
+function renderMidiPorts() {
+  const table = document.getElementById('midi-ports-table');
+  while (table.rows.length > 1) table.deleteRow(1);
+
+  const ports = new Map();
+  for (let [id, input]  of midiAccess.inputs)  {
+    if (!ports.has(input.name))  ports.set(input.name,  { input: null, output: null });
+    ports.get(input.name).input  = { id, port: input };
+  }
+  for (let [id, output] of midiAccess.outputs) {
+    if (!ports.has(output.name)) ports.set(output.name, { input: null, output: null });
+    ports.get(output.name).output = { id, port: output };
+  }
+
+  if (ports.size === 0) {
+    setStatus('midi-status', 'No MIDI ports — see Setup Help');
+    document.getElementById('setup-help').open = true;
+    return;
+  }
+
+  for (let [name, { input, output }] of ports) {
+    const recv = isReceiving(name);
+    const send = isSending(name);
+    const row  = table.insertRow();
+    row.innerHTML = `
+      <td>${name}</td>
+      <td>${output
+        ? `<button class="btn ${recv ? 'on' : 'off'}"
+               onclick="toggleReceive('${name}')">${recv ? 'ON' : 'OFF'}</button>`
+        : '<span class="dim">—</span>'}</td>
+      <td>${input
+        ? `<button class="btn ${send ? 'on' : 'off'}"
+               onclick="toggleSend('${name}')">${send ? 'ON' : 'OFF'}</button>`
+        : '<span class="dim">—</span>'}</td>
+      <td class="dim">${recv && send ? 'receive + send' :
+                        recv         ? 'receiving from router' :
+                        send         ? 'sending to router' : ''}</td>
+    `;
+  }
+
+  const recvCount = [...ports.keys()].filter(isReceiving).length;
+  const sendCount = [...ports.keys()].filter(isSending).length;
+  setStatus('midi-status', `${recvCount} receiving, ${sendCount} sending`);
+}
+
+function toggleReceive(portName) {
+  const newRecv = !isReceiving(portName);
+  setPortReceive(portName, newRecv);
+  if (newRecv && isSending(portName)) {
+    setPortSend(portName, false);
+    for (let [id, input] of midiAccess.inputs) {
+      if (input.name === portName) input.onmidimessage = null;
     }
+  }
+  renderMidiPorts();
+}
 
-    const TAB_ID = Math.random().toString(36).slice(2);
-    const bc = new BroadcastChannel('rf-midi');
-
-    bc.onmessage = (e) => {
-      if (e.data.type === 'port-state-changed') {
-        Object.assign(portState, JSON.parse(localStorage.getItem('rf-port-state') || '{}'));
-        renderMidiPorts();
-        restoreInputListeners();
-      }
-      if (e.data.type === 'device-midi-changed') {
-        Object.assign(deviceMidi, JSON.parse(localStorage.getItem('rf-device-midi') || '{}'));
-        rerenderDeviceToggles();
-      }
-    };
-
-    function savePortState() {
-      localStorage.setItem('rf-port-state', JSON.stringify(portState));
-      bc.postMessage({ type: 'port-state-changed', from: TAB_ID });
+function toggleSend(portName) {
+  const newSend = !isSending(portName);
+  setPortSend(portName, newSend);
+  if (newSend && isReceiving(portName)) {
+    setPortReceive(portName, false);
+  }
+  for (let [id, input] of midiAccess.inputs) {
+    if (input.name === portName) {
+      input.onmidimessage = newSend && !isReceiving(portName)
+        ? (e) => handleLocalMidiInput(e, portName)
+        : null;
     }
+  }
+  renderMidiPorts();
+}
 
-    function isReceiving(portName) { return portState[portName]?.receive === true; }
-    function isSending(portName)   { return portState[portName]?.send === true; }
+// ═══════════════════════════════════════════════════
+// MIDI OUTPUT — send to all receiving ports
+// ═══════════════════════════════════════════════════
 
-    function setPortReceive(portName, val) {
-      if (!portState[portName]) portState[portName] = {};
-      portState[portName].receive = val;
-      savePortState();
+function sendMidi(bytes) {
+  if (!midiAccess) return;
+  for (let [id, output] of midiAccess.outputs) {
+    if (isReceiving(output.name)) output.send(bytes);
+  }
+}
+
+function sendCC(channel, cc, value) {
+  sendMidi([0xB0 + (channel - 1), cc, Math.round(value)]);
+}
+
+// ═══════════════════════════════════════════════════
+// LOCAL MIDI INPUT — forward to router
+// ═══════════════════════════════════════════════════
+
+function handleLocalMidiInput(event, portName) {
+  if (isReceiving(portName)) return;  // don't loop back our own output
+  const msg    = [...event.data];
+  if (msg.length < 2) return;
+  const status  = msg[0];
+  const msgType = status & 0xF0;
+  const channel = (status & 0x0F) + 1;
+
+  let decoded = {
+    type: 'midi',
+    device: portName,
+    source: MY_IP || 'unknown',
+    channel,
+    raw: msg
+  };
+
+  if      (msgType === 0xB0) { decoded.msgType = 'cc';        decoded.cc   = msg[1]; decoded.value    = msg[2]; }
+  else if (msgType === 0x90) { decoded.msgType = 'noteon';    decoded.note = msg[1]; decoded.velocity = msg[2]; }
+  else if (msgType === 0x80) { decoded.msgType = 'noteoff';   decoded.note = msg[1]; decoded.velocity = msg[2]; }
+  else if (msgType === 0xE0) { decoded.msgType = 'pitchbend'; decoded.value = (msg[2] << 7) | msg[1]; }
+  else return;
+
+  if (ws.readyState === 1) ws.send(JSON.stringify(decoded));
+  handleIncomingSignal(decoded);
+}
+
+// ═══════════════════════════════════════════════════
+// SIGNAL TABLE — live only, no pre-population
+// Rows appear on first live message, persist until refresh
+// ch/cc/min/max loaded from and saved to localStorage
+// ═══════════════════════════════════════════════════
+
+// deviceKey → signal type for MIDI output logic
+const liveSignalTypes = {};
+
+function signalKey(data) {
+  if (data.type === 'osc' || data.type === 'json') {
+    return data.device;
+  }
+  if (data.type === 'midi') {
+    if (data.msgType === 'cc')       return `${data.device}/ch${data.channel}/cc${data.cc}`;
+    if (data.msgType === 'noteon' || data.msgType === 'noteoff')
+                                     return `${data.device}/ch${data.channel}/n${data.note}`;
+    if (data.msgType === 'pitchbend') return `${data.device}/ch${data.channel}/pb`;
+    return data.device;
+  }
+  return data.device || 'unknown';
+}
+
+function ensureSection(source) {
+  const sectionId = `section-${source.replace(/\W+/g, '-')}`;
+  let section = document.getElementById(sectionId);
+  if (!section) {
+    section = document.createElement('div');
+    section.id = sectionId;
+    const h3 = document.createElement('h3');
+    h3.id = `heading-${sectionId}`;
+    h3.textContent = source;
+    section.appendChild(h3);
+    const table = document.createElement('table');
+    table.id = `signals-${source.replace(/\W+/g, '-')}`;
+    table.innerHTML = `
+      <tr>
+        <th style="width:28%">SIGNAL</th>
+        <th style="width:10%">RAW</th>
+        <th style="width:10%">MIDI</th>
+        <th style="width:9%">CH</th>
+        <th style="width:9%">CC</th>
+        <th style="width:9%">MIN</th>
+        <th style="width:9%">MAX</th>
+        <th style="width:8%">OUT</th>
+      </tr>
+    `;
+    section.appendChild(table);
+    document.getElementById('signals-container').appendChild(section);
+  }
+  return document.getElementById(`signals-${source.replace(/\W+/g, '-')}`);
+}
+
+function ensureRow(data) {
+  const key     = signalKey(data);
+  const source  = data.source || 'unknown';
+  const safeKey = key.replace(/\W+/g, '-');
+  const rowId   = `row-${safeKey}`;
+
+  if (document.getElementById(rowId)) return rowId;
+
+  liveSignalTypes[key] = data.type;
+
+  const table  = ensureSection(source);
+  const assign = getAssignment(key);
+  const isSensorType = data.type === 'osc';  // osc sensors have min/max; json is already 0-1
+
+  const row  = table.insertRow();
+  row.id     = rowId;
+  row.innerHTML = `
+    <td class="dim" style="overflow:hidden;text-overflow:ellipsis" title="${key}">${key}</td>
+    <td class="val" id="raw-${safeKey}">--</td>
+    <td class="val" id="midi-${safeKey}">--</td>
+    <td><input type="number" min="1" max="16"
+         value="${assign.channel ?? ''}" placeholder="—"
+         onchange="setAssignment('${key}', 'channel', +this.value); applyMidiOut('${key}')"></td>
+    <td><input type="number" min="0" max="127"
+         value="${assign.cc ?? ''}" placeholder="—"
+         onchange="setAssignment('${key}', 'cc', +this.value); applyMidiOut('${key}')"></td>
+    <td><input type="number" min="0" max="9999"
+         value="${assign.min ?? ''}" placeholder="—" ${isSensorType ? '' : 'disabled'}
+         onchange="setAssignment('${key}', 'min', +this.value)"></td>
+    <td><input type="number" min="0" max="9999"
+         value="${assign.max ?? ''}" placeholder="—" ${isSensorType ? '' : 'disabled'}
+         onchange="setAssignment('${key}', 'max', +this.value)"></td>
+    <td><button class="btn on" id="out-${safeKey}"
+         onclick="toggleOut('${key}', '${safeKey}')">ON</button></td>
+  `;
+
+  return rowId;
+}
+
+// per-signal mute (localStorage)
+function isOutEnabled(key) {
+  try { return JSON.parse(localStorage.getItem('rf-out-' + key) ?? 'true'); }
+  catch { return true; }
+}
+
+function toggleOut(key, safeKey) {
+  const newVal = !isOutEnabled(key);
+  localStorage.setItem('rf-out-' + key, JSON.stringify(newVal));
+  const btn = document.getElementById(`out-${safeKey}`);
+  if (btn) { btn.textContent = newVal ? 'ON' : 'OFF'; btn.className = `btn ${newVal ? 'on' : 'off'}`; }
+}
+
+function updateRow(data) {
+  const key     = signalKey(data);
+  const safeKey = key.replace(/\W+/g, '-');
+  const rawEl   = document.getElementById(`raw-${safeKey}`);
+  const midiEl  = document.getElementById(`midi-${safeKey}`);
+
+  if (data.type === 'osc' || data.type === 'json') {
+    if (rawEl) rawEl.textContent = typeof data.value === 'number' ? data.value.toFixed(4) : data.value;
+    const assign = getAssignment(key);
+    const min    = assign.min ?? data.min ?? 0;
+    const max    = assign.max ?? data.max ?? 1;
+    const norm   = max === min ? 0 : Math.max(0, Math.min(1, (data.value - min) / (max - min)));
+    const midiVal = Math.round(norm * 127);
+    if (midiEl) midiEl.textContent = midiVal;
+
+    if (isOutEnabled(key) && assign.channel && assign.cc != null) {
+      if (!(key in smoothed)) smoothed[key] = norm;
+      smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
+      sendCC(assign.channel, assign.cc, smoothed[key] * 127);
     }
+  }
 
-    function setPortSend(portName, val) {
-      if (!portState[portName]) portState[portName] = {};
-      portState[portName].send = val;
-      savePortState();
+  if (data.type === 'midi') {
+    if (rawEl) {
+      if      (data.msgType === 'cc')       rawEl.textContent = (data.value / 127).toFixed(4);
+      else if (data.msgType === 'noteon')   rawEl.textContent = `v${data.velocity}`;
+      else if (data.msgType === 'noteoff')  rawEl.textContent = 'off';
+      else if (data.msgType === 'pitchbend') rawEl.textContent = data.value;
     }
-
-    const deviceMidi = loadDeviceMidi();
-    function loadDeviceMidi() {
-      try { return JSON.parse(localStorage.getItem('rf-device-midi') || '{}'); }
-      catch { return {}; }
+    if (midiEl) {
+      if (data.msgType === 'cc') midiEl.textContent = data.value;
     }
+  }
+}
 
-    function saveDeviceMidi() {
-      localStorage.setItem('rf-device-midi', JSON.stringify(deviceMidi));
-      bc.postMessage({ type: 'device-midi-changed', from: TAB_ID });
-    }
+function applyMidiOut(key) {
+  // called when ch/cc inputs change — force a smoothed reset so next value fires cleanly
+  delete smoothed[key];
+}
 
-    function isDeviceMidiOn(deviceName) {
-      return deviceMidi[deviceName] !== false;
-    }
+// ═══════════════════════════════════════════════════
+// INCOMING SIGNAL HANDLER
+// ═══════════════════════════════════════════════════
 
-    function setDeviceMidi(deviceName, val) {
-      deviceMidi[deviceName] = val;
-      saveDeviceMidi();
-    }
+function handleIncomingSignal(data) {
+  // osc/json: create row, update values, emit MIDI out
+  if (data.type === 'osc' || data.type === 'json') {
+    ensureRow(data);
+    updateRow(data);
+  }
 
-    function rerenderDeviceToggles() {
-      document.querySelectorAll('[id^="midi-toggle-"]').forEach(btn => {
-        const onclick = btn.getAttribute('onclick') || '';
-        const match = onclick.match(/toggleDeviceMidi\('([^']+)'/);
-        if (match) {
-          const key = match[1];
-          const on = isDeviceMidiOn(key);
-          btn.textContent = on ? 'ON' : 'OFF';
-          btn.className = `btn ${on ? 'on' : 'off'}`;
-        }
-      });
-    }
+  // midi: create row, update display, pass through to MIDI out ports
+  if (data.type === 'midi') {
+    ensureRow(data);
+    updateRow(data);
+    if (data.raw) sendMidi(data.raw);
+  }
+}
 
-    // ═══════════════════════════════════════════════════
-    // CLIENT IDENTITY
-    // ═══════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════
+// WEBSOCKET
+// ═══════════════════════════════════════════════════
 
-    function detectOS() {
-      const ua = navigator.userAgent;
-      let os = 'Unknown OS';
-      if (ua.includes('CrOS'))                               os = 'ChromeOS';
-      else if (ua.includes('Mac OS X'))                      os = 'macOS';
-      else if (ua.includes('Windows'))                       os = 'Windows';
-      else if (ua.includes('Android'))                       os = 'Android';
-      else if (ua.includes('iPhone') || ua.includes('iPad')) os = 'iOS';
-      else if (ua.includes('Linux'))                         os = 'Linux';
-      return os;
-    }
+const ws = new WebSocket(`wss://${location.host}`);
 
-    // ═══════════════════════════════════════════════════
-    // OSC status
-    // ═══════════════════════════════════════════════════
+ws.onopen  = () => setStatus('ws-status', 'connected', true);
+ws.onclose = () => setStatus('ws-status', 'disconnected', false);
+ws.onerror = () => setStatus('ws-status', 'error', false);
 
-    // OSC port state — parallel to MIDI portState
-    const oscPortState = loadOSCPortState();
-    function loadOSCPortState() {
-      try { return JSON.parse(localStorage.getItem('rf-osc-port-state') || '{}'); }
-      catch { return {}; }
-    }
-    function saveOSCPortState() {
-      localStorage.setItem('rf-osc-port-state', JSON.stringify(oscPortState));
-    }
-    function isOSCReceiving(port) { return oscPortState[port]?.receive === true; }
-    function isOSCSending(port)   { return oscPortState[port]?.send === true; }
-    function setOSCReceive(port, val) {
-      if (!oscPortState[port]) oscPortState[port] = {};
-      oscPortState[port].receive = val;
+ws.onmessage = event => {
+  const data = JSON.parse(event.data);
+
+  if (data.type === 'server_info') {
+    document.getElementById('server-name').textContent = `${data.hostname} (${data.platform})`;
+    document.getElementById('server-wifi').textContent =
+      `${data.networkMode === 'ap' ? 'AP mode: ' : 'WiFi mode: '}${data.networkSsid}`;
+  }
+
+  if (data.type === 'client_info') {
+    MY_IP = data.ip;
+    document.getElementById('client-name').textContent = MY_IP;
+
+    const os = detectOS();
+
+    if (data.oscReceive !== undefined && data.oscReceive !== isOSCReceiving(9000)) {
+      oscPortState[9000] = oscPortState[9000] || {};
+      oscPortState[9000].receive = data.oscReceive;
       saveOSCPortState();
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_receive', enabled: val }));
       renderOSCPorts();
       updateOSCStatus();
     }
-    function setOSCSend(port, val) {
-      if (!oscPortState[port]) oscPortState[port] = {};
-      oscPortState[port].send = val;
-      saveOSCPortState();
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_send', enabled: val }));
-      renderOSCPorts();
-      updateOSCStatus();
+
+    let connType = 'unknown connection type';
+    if (data.isServerMachine)              connType = 'same machine';
+    else if (MY_IP.startsWith('100.'))     connType = 'Remote via Tailscale';
+    else if (MY_IP.startsWith('192.168.4.')) connType = 'Local via access point';
+    else if (MY_IP.startsWith('10.0.0.'))  connType = 'Local via ethernet switch';
+    else if (MY_IP.startsWith('192.168'))  connType = 'Local via WiFi';
+
+    document.getElementById('client-connection').textContent = connType;
+    document.getElementById('tab-count').textContent =
+      `${data.tabCount} tab${data.tabCount !== 1 ? 's' : ''}`;
+
+    if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'client_meta', os, connType }));
+  }
+
+  if (data.type === 'client_count') {
+    document.getElementById('client-count').textContent =
+      `${data.count} client${data.count !== 1 ? 's' : ''}`;
+    document.getElementById('tab-count').textContent =
+      `${data.tabCount} tab${data.tabCount !== 1 ? 's' : ''}`;
+
+    if (data.allClients) {
+      for (const c of data.allClients) updateSectionHeading(c);
     }
-
-    function toggleOSCReceive(port) { setOSCReceive(port, !isOSCReceiving(port)); }
-    function toggleOSCSend(port)    { setOSCSend(port,    !isOSCSending(port));   }
-
-    function renderOSCPorts() {
-      const table = document.getElementById('osc-ports-table');
-      while (table.rows.length > 1) table.deleteRow(1);
-
-      const ports = [9000]; // port 9000 — router OSC broadcast
-
-      for (const port of ports) {
-        const recv = isOSCReceiving(port);
-        const send = isOSCSending(port);
-        const row  = table.insertRow();
-        row.innerHTML = `
-          <td>:${port}</td>
-          <td><button class="btn ${recv ? 'on' : 'off'}"
-            onclick="toggleOSCReceive(${port})">${recv ? 'ON' : 'OFF'}</button></td>
-          <td><button class="btn ${send ? 'on' : 'off'}"
-            onclick="toggleOSCSend(${port})">${send ? 'ON' : 'OFF'}</button></td>
-          <td class="dim">
-            ${recv && send ? 'recv :9000 · send → :5005' :
-              recv ? 'receiving from router :9000' :
-              send ? 'sending → 10.0.0.1:5005' : ''}
-          </td>
-        `;
-      }
-    }
-
-    function updateOSCStatus() {
-      const recv = isOSCReceiving(9000);
-      const send = isOSCSending(9000);
-      document.getElementById('osc-status').textContent =
-        recv && send ? 'OSC :9000 recv+send' :
-        recv ? 'OSC :9000 recv' :
-        send ? 'OSC :5005 send' : 'OSC off';
-    }
-
-    // ═══════════════════════════════════════════════════
-    // WebMIDI
-    // ═══════════════════════════════════════════════════
-
-    // Render OSC ports on load (state already loaded above)
-    renderOSCPorts();
-    updateOSCStatus();
-
-    if (navigator.requestMIDIAccess) {
-      navigator.requestMIDIAccess().then(midi => {
-        midiAccess = midi;
-        renderMidiPorts();
-        restoreInputListeners();
-        setStatus('midi-status', 'WebMIDI ready');
-        midi.onstatechange = () => {
-          renderMidiPorts();
-          restoreInputListeners();
-        };
-      }).catch(() => {
-        setStatus('midi-status', 'WebMIDI denied');
-        document.getElementById('setup-help').open = true;
-      });
-    } else {
-      setStatus('midi-status', 'WebMIDI not supported — use Chrome');
-      document.getElementById('setup-help').open = true;
-    }
-
-    function restoreInputListeners() {
-      if (!midiAccess) return;
-      for (let [id, input] of midiAccess.inputs) {
-        if (isSending(input.name)) {
-          input.onmidimessage = (e) => handleLocalMidiInput(e, input.name);
-        } else {
-          input.onmidimessage = null;
-        }
-      }
-    }
-
-    function renderMidiPorts() {
-      const table = document.getElementById('midi-ports-table');
-      while (table.rows.length > 1) table.deleteRow(1);
-
-      const ports = new Map();
-      for (let [id, input] of midiAccess.inputs) {
-        if (!ports.has(input.name)) ports.set(input.name, { input: null, output: null });
-        ports.get(input.name).input = { id, port: input };
-      }
-      for (let [id, output] of midiAccess.outputs) {
-        if (!ports.has(output.name)) ports.set(output.name, { input: null, output: null });
-        ports.get(output.name).output = { id, port: output };
-      }
-
-      if (ports.size === 0) {
-        setStatus('midi-status', 'No MIDI ports — see Setup Help');
-        document.getElementById('setup-help').open = true;
-        return;
-      }
-
-      for (let [name, { input, output }] of ports) {
-        const recv = isReceiving(name);
-        const send = isSending(name);
-        const row = table.insertRow();
-        row.innerHTML = `
-          <td>${name}</td>
-          <td>${output
-            ? `<button class="btn ${recv ? 'on' : 'off'}"
-                onclick="toggleReceive('${name}')">${recv ? 'ON' : 'OFF'}</button>`
-            : '<span class="dim">—</span>'}
-          </td>
-          <td>${input
-            ? `<button class="btn ${send ? 'on' : 'off'}"
-                onclick="toggleSend('${name}')">${send ? 'ON' : 'OFF'}</button>`
-            : '<span class="dim">—</span>'}
-          </td>
-          <td class="dim">
-            ${recv && send ? 'receive + send' :
-              recv ? 'receiving from router' :
-              send ? 'sending to router' : ''}
-          </td>
-        `;
-      }
-
-      const recvCount = [...ports.keys()].filter(isReceiving).length;
-      const sendCount = [...ports.keys()].filter(isSending).length;
-      setStatus('midi-status', `${recvCount} receiving, ${sendCount} sending`);
-    }
-
-    function toggleReceive(portName) {
-      setPortReceive(portName, !isReceiving(portName));
-      renderMidiPorts();
-    }
-
-    function toggleSend(portName) {
-      const nowOn = !isSending(portName);
-      setPortSend(portName, nowOn);
-      for (let [id, input] of midiAccess.inputs) {
-        if (input.name === portName) {
-          input.onmidimessage = nowOn
-            ? (e) => handleLocalMidiInput(e, portName)
-            : null;
-        }
-      }
-      renderMidiPorts();
-    }
-
-    // ═══════════════════════════════════════════════════
-    // MIDI OUTPUT
-    // ═══════════════════════════════════════════════════
-
-    function sendMidi(bytes) {
-      if (!midiAccess) return;
-      for (let [id, output] of midiAccess.outputs) {
-        if (isReceiving(output.name)) output.send(bytes);
-      }
-    }
-
-    function sendCC(channel, cc, value) {
-      sendMidi([0xB0 + (channel - 1), cc, Math.round(value)]);
-    }
-
-    function normalize(value, min, max) {
-      return Math.max(0, Math.min(127, (value - min) / (max - min) * 127));
-    }
-
-    // ═══════════════════════════════════════════════════
-    // LOCAL MIDI INPUT — forward to router
-    // ═══════════════════════════════════════════════════
-
-    function handleLocalMidiInput(event, portName) {
-      const msg = [...event.data];
-      if (msg.length < 2) return;
-
-      const status  = msg[0];
-      const msgType = status & 0xF0;
-      const channel = (status & 0x0F) + 1;
-
-      let decoded = {
-        type: 'midi',
-        device: portName,
-        source: MY_IP || 'unknown',
-        channel,
-        raw: msg
-      };
-
-      if      (msgType === 0xB0) { decoded.msgType = 'cc';        decoded.cc = msg[1];   decoded.value = msg[2]; }
-      else if (msgType === 0x90) { decoded.msgType = 'noteon';    decoded.note = msg[1]; decoded.velocity = msg[2]; }
-      else if (msgType === 0x80) { decoded.msgType = 'noteoff';   decoded.note = msg[1]; decoded.velocity = msg[2]; }
-      else if (msgType === 0xE0) { decoded.msgType = 'pitchbend'; decoded.value = (msg[2] << 7) | msg[1]; }
-      else return;
-
-      if (ws.readyState === 1) ws.send(JSON.stringify(decoded));
-      handleIncomingSignal(decoded);
-    }
-
-    // ═══════════════════════════════════════════════════
-    // ROUTING
-    // ═══════════════════════════════════════════════════
-
-    fetch('/api/routing')
-      .then(r => r.json())
-      .then(data => { routing = data; renderSensorSignals(); });
-
-    function updateRouting(key, field, value) {
-      fetch(`/api/routing/${encodeURIComponent(key)}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: value })
-      }).then(r => r.json()).then(data => { routing[key] = data.routing; });
-    }
-
-    // ═══════════════════════════════════════════════════
-    // SIGNALS TABLE — sensors
-    // ═══════════════════════════════════════════════════
-
-    function renderSensorSignals() {
-      const sources = {};
-      for (const [key, route] of Object.entries(routing)) {
-        const source = route.source || 'adrian-pi';
-        if (!sources[source]) sources[source] = [];
-        sources[source].push([key, route]);
-      }
-
-      const container = document.getElementById('signals-container');
-
-      for (const [source, entries] of Object.entries(sources)) {
-        const sectionId = `section-${source.replace(/\W+/g, '-')}`;
-        let section = document.getElementById(sectionId);
-        if (!section) {
-          section = createSignalSection(source);
-          container.appendChild(section);
-        }
-        const table = document.getElementById(`signals-${source.replace(/\W+/g, '-')}`);
-
-        for (const [key, route] of entries) {
-          const safeKey = key.replace(/[\/\s]+/g, '-');
-          const rowId = `row-${safeKey}`;
-          if (document.getElementById(rowId)) continue;
-
-          const isSensor = route.min !== undefined;
-          const row = table.insertRow();
-          row.id = rowId;
-          const midiOn = isDeviceMidiOn(key);
-
-          row.innerHTML = `
-            <td>
-              <button class="btn ${route.enabled ? 'on' : 'off'}"
-                id="server-toggle-${safeKey}"
-                onclick="toggleServerRoute('${key}')">
-                ${route.enabled ? 'ON' : 'OFF'}
-              </button>
-            </td>
-            <td class="dim">${key}</td>
-            <td class="val" id="raw-${safeKey}">--</td>
-            <td class="val" id="midi-${safeKey}">--</td>
-            <td><input type="number" min="1" max="16" value="${route.channel}"
-              onchange="updateRouting('${key}', 'channel', +this.value)"></td>
-            <td><input type="number" min="0" max="127" value="${route.cc}"
-              onchange="updateRouting('${key}', 'cc', +this.value)"></td>
-            <td><input type="number" min="0" max="1000" value="${route.min ?? ''}"
-              placeholder="—" ${isSensor ? '' : 'disabled'}
-              onchange="updateRouting('${key}', 'min', +this.value)"></td>
-            <td><input type="number" min="0" max="1000" value="${route.max ?? ''}"
-              placeholder="—" ${isSensor ? '' : 'disabled'}
-              onchange="updateRouting('${key}', 'max', +this.value)"></td>
-            <td>
-              <button class="btn ${midiOn ? 'on' : 'off'}"
-                id="midi-toggle-${safeKey}"
-                onclick="toggleDeviceMidi('${key}', '${safeKey}')">
-                ${midiOn ? 'ON' : 'OFF'}
-              </button>
-            </td>
-          `;
-        }
-      }
-    }
-
-    // ═══════════════════════════════════════════════════
-    // SIGNALS TABLE — controllers (one row per device+signal)
-    // ═══════════════════════════════════════════════════
-
-    function ensureDeviceRow(data) {
-      const device = data.device;
-      const source = data.source || 'adrian-pi';
-
-      let signalKey;
-      if (data.msgType === 'cc')
-        signalKey = `${device}/ch${data.channel}/cc${data.cc}`;
-      else if (data.msgType === 'noteon' || data.msgType === 'noteoff')
-        signalKey = `${device}/ch${data.channel}/n${data.note}`;
-      else if (data.msgType === 'pitchbend')
-        signalKey = `${device}/ch${data.channel}/pb`;
-      else
-        signalKey = device;
-
-      const safeKey = signalKey.replace(/\W+/g, '-');
-      const rowId   = `row-device-${safeKey}`;
-      if (document.getElementById(rowId)) return;
-
-      const sectionId = `section-${source.replace(/\W+/g, '-')}`;
-      let section = document.getElementById(sectionId);
-      if (!section) {
-        section = createSignalSection(source);
-        document.getElementById('signals-container').appendChild(section);
-      }
-      const table = document.getElementById(`signals-${source.replace(/\W+/g, '-')}`);
-      if (!table) return;
-
-      if (!(signalKey in deviceMidi)) setDeviceMidi(signalKey, true);
-      const midiOn = isDeviceMidiOn(signalKey);
-      const route  = routing[signalKey] || {};
-
-      const row = table.insertRow();
-      row.id = rowId;
-      row.innerHTML = `
-        <td><button class="btn on" id="server-toggle-device-${safeKey}">ON</button></td>
-        <td class="dim">${signalKey}</td>
-        <td class="val" id="raw-device-${safeKey}">--</td>
-        <td class="val" id="midi-device-${safeKey}">--</td>
-        <td><input type="number" min="1" max="16"
-          value="${route.channel ?? data.channel ?? ''}" placeholder="—"
-          onchange="updateRouting('${signalKey}', 'channel', +this.value)"></td>
-        <td><input type="number" min="0" max="127"
-          value="${route.cc ?? data.cc ?? data.note ?? ''}" placeholder="—"
-          onchange="updateRouting('${signalKey}', 'cc', +this.value)"></td>
-        <td><input type="number" placeholder="—"
-          value="${route.min ?? ''}"
-          onchange="updateRouting('${signalKey}', 'min', +this.value)"></td>
-        <td><input type="number" placeholder="—"
-          value="${route.max ?? ''}"
-          onchange="updateRouting('${signalKey}', 'max', +this.value)"></td>
-        <td>
-          <button class="btn ${midiOn ? 'on' : 'off'}"
-            id="midi-toggle-${safeKey}"
-            onclick="toggleDeviceMidi('${signalKey}', '${safeKey}')">
-            ${midiOn ? 'ON' : 'OFF'}
-          </button>
-        </td>
-      `;
-    }
-
-    function updateDeviceRow(data) {
-      const device = data.device;
-      let signalKey;
-      if (data.msgType === 'cc')
-        signalKey = `${device}/ch${data.channel}/cc${data.cc}`;
-      else if (data.msgType === 'noteon' || data.msgType === 'noteoff')
-        signalKey = `${device}/ch${data.channel}/n${data.note}`;
-      else if (data.msgType === 'pitchbend')
-        signalKey = `${device}/ch${data.channel}/pb`;
-      else
-        signalKey = device;
-
-      const safe   = signalKey.replace(/\W+/g, '-');
-      const rawEl  = document.getElementById(`raw-device-${safe}`);
-      const midiEl = document.getElementById(`midi-device-${safe}`);
-      if (rawEl && data.rawValue != null) rawEl.textContent = data.rawValue.toFixed(4);
-      if (!midiEl) return;
-      if      (data.msgType === 'cc')        midiEl.textContent = data.value;
-      else if (data.msgType === 'noteon')    midiEl.textContent = `v${data.velocity}`;
-      else if (data.msgType === 'noteoff')   midiEl.textContent = `off`;
-      else if (data.msgType === 'pitchbend') midiEl.textContent = data.value;
-    }
-
-    // ═══════════════════════════════════════════════════
-    // INCOMING SIGNAL HANDLER
-    // ═══════════════════════════════════════════════════
-
-    function handleIncomingSignal(data) {
-      if (data.type === 'osc' || data.type === 'json') {
-        const key     = data.device ?? `${data.name}/${data.param}`;
-        const route   = routing[key] || {};
-        const min     = route.min ?? data.min ?? 0;
-        const max     = route.max ?? data.max ?? 1;
-        const norm    = (max === min) ? 0
-          : Math.max(0, Math.min(1, (data.value - min) / (max - min)));
-
-        // Create a row if not in routing and not already shown
-        if (!routing[key]) ensureJsonRow(data, key);
-        updateJsonRow(key, data.value, Math.round(norm * 127));
-
-        if (route.enabled !== false && isDeviceMidiOn(key) && route.channel && route.cc) {
-          if (!(key in smoothed)) smoothed[key] = norm;
-          smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
-          sendCC(route.channel, route.cc, smoothed[key] * 127);
-        }
-      }
-
-      if (data.type === 'midi') {
-        ensureDeviceRow(data);
-        updateDeviceRow(data);
-        if (isDeviceMidiOn(data.device) && data.raw) sendMidi(data.raw);
-      }
-    }
-
-    // Creates an editable row for json/osc signals not yet in routing config
-    function ensureJsonRow(data, key) {
-      const source    = data.source || 'unknown';
-      const sectionId = `section-${source.replace(/\W+/g, '-')}`;
-      let section = document.getElementById(sectionId);
-      if (!section) {
-        section = createSignalSection(source);
-        document.getElementById('signals-container').appendChild(section);
-      }
-      const table = document.getElementById(`signals-${source.replace(/\W+/g, '-')}`);
-      if (!table) return;
-
-      const safeKey = key.replace(/\W+/g, '-');
-      const rowId   = `row-json-${safeKey}`;
-      if (document.getElementById(rowId)) return;
-
-      if (!(key in deviceMidi)) setDeviceMidi(key, true);
-      const midiOn = isDeviceMidiOn(key);
-      const enc    = encodeURIComponent(key);
-
-      const row = table.insertRow();
-      row.id = rowId;
-      row.innerHTML = `
-        <td>
-          <button class="btn on" id="server-toggle-json-${safeKey}"
-            onclick="toggleServerRoute('${key}')">ON</button>
-        </td>
-        <td class="dim">${key}</td>
-        <td class="val" id="raw-json-${safeKey}">--</td>
-        <td class="val" id="midi-json-${safeKey}">--</td>
-        <td><input type="number" min="1" max="16" placeholder="—"
-          onchange="updateRouting('${key}', 'channel', +this.value)"></td>
-        <td><input type="number" min="0" max="127" placeholder="—"
-          onchange="updateRouting('${key}', 'cc', +this.value)"></td>
-        <td><input type="number" placeholder="—"
-          onchange="updateRouting('${key}', 'min', +this.value)"></td>
-        <td><input type="number" placeholder="—"
-          onchange="updateRouting('${key}', 'max', +this.value)"></td>
-        <td>
-          <button class="btn ${midiOn ? 'on' : 'off'}"
-            id="midi-toggle-json-${safeKey}"
-            onclick="toggleDeviceMidi('${key}', 'json-${safeKey}')">
-            ${midiOn ? 'ON' : 'OFF'}
-          </button>
-        </td>
-      `;
-    }
-
-    function updateJsonRow(key, rawValue, midiValue) {
-      const safeKey = key.replace(/\W+/g, '-');
-      // Check routing row first, then json row
-      const rawEl  = document.getElementById(`raw-${safeKey}`) ||
-                     document.getElementById(`raw-json-${safeKey}`);
-      const midiEl = document.getElementById(`midi-${safeKey}`) ||
-                     document.getElementById(`midi-json-${safeKey}`);
-      if (rawEl)  rawEl.textContent  = typeof rawValue === 'number' ? rawValue.toFixed(4) : rawValue;
-      if (midiEl) midiEl.textContent = midiValue;
-    }
-
-    // ═══════════════════════════════════════════════════
-    // TOGGLE HANDLERS
-    // ═══════════════════════════════════════════════════
-
-    function toggleServerRoute(key) {
-      const newVal = !routing[key]?.enabled;
-      updateRouting(key, 'enabled', newVal);
-      if (routing[key]) routing[key].enabled = newVal;
-      const safeKey = key.replace(/[\/\s]+/g, '-');
-      const btn = document.getElementById(`server-toggle-${safeKey}`);
-      if (btn) { btn.textContent = newVal ? 'ON' : 'OFF'; btn.className = `btn ${newVal ? 'on' : 'off'}`; }
-    }
-
-    function toggleDeviceMidi(key, safeKey) {
-      const newVal = !isDeviceMidiOn(key);
-      setDeviceMidi(key, newVal);
-      const btn = document.getElementById(`midi-toggle-${safeKey}`);
-      if (btn) { btn.textContent = newVal ? 'ON' : 'OFF'; btn.className = `btn ${newVal ? 'on' : 'off'}`; }
-    }
-
-    // ═══════════════════════════════════════════════════
-    // SECTION FACTORY
-    // ═══════════════════════════════════════════════════
-
-    function createSignalSection(source) {
-      const section = document.createElement('div');
-      section.id = `section-${source.replace(/\W+/g, '-')}`;
-
-      const h3 = document.createElement('h3');
-      h3.textContent = source;
-      section.appendChild(h3);
-
-      const table = document.createElement('table');
-      table.id = `signals-${source.replace(/\W+/g, '-')}`;
-      table.innerHTML = `
-        <tr>
-          <th style="width:6%">ON</th>
-          <th style="width:22%">SIGNAL</th>
-          <th style="width:9%">RAW</th>
-          <th style="width:9%">MIDI</th>
-          <th style="width:8%">CH</th>
-          <th style="width:8%">CC</th>
-          <th style="width:7%">MIN</th>
-          <th style="width:7%">MAX</th>
-          <th style="width:6%">OUT</th>
-        </tr>
-      `;
-      section.appendChild(table);
-      return section;
-    }
-
-    function updateSectionHeading(ip, meta, isMe) {
-      const section = document.getElementById(`section-${ip.replace(/\W+/g, '-')}`);
-      if (!section) return;
-      const h3 = section.querySelector('h3');
-      if (!h3) return;
-      const osPart   = meta.os       ? ` (${meta.os})`       : '';
-      const connPart = meta.connType ? ` · ${meta.connType}` : '';
-      const tabPart  = meta.tabCount > 1 ? ` · ${meta.tabCount} tabs` : '';
-      const oscPart  = meta.oscReceive ? ' · OSC :9000' : '';
-      const mePart   = isMe ? ' · this client' : '';
-      h3.textContent = `${ip}${osPart}${connPart}${tabPart}${oscPart}${mePart}`;
-    }
-
-    // ═══════════════════════════════════════════════════
-    // WEBSOCKET
-    // ═══════════════════════════════════════════════════
-
-    const ws = new WebSocket(`wss://${location.host}`);
-
-    ws.onopen = () => setStatus('ws-status', 'connected', true);
-
-    ws.onmessage = event => {
-      const data = JSON.parse(event.data);
-
-      if (data.type === 'server_info') {
-        document.getElementById('server-name').textContent =
-          `${data.hostname} (${data.platform})`;
-        document.getElementById('server-wifi').textContent =
-          `${data.networkMode === 'ap' ? 'AP mode: ' : 'WiFi mode: '}${data.networkSsid}`;
-      }
-
-      if (data.type === 'client_info') {
-        MY_IP = data.ip;
-        document.getElementById('client-name').textContent = MY_IP;
-
-        const os = detectOS();
-
-        // Sync OSC state from server
-        if (data.oscReceive !== undefined) oscReceiveOn = data.oscReceive;
-        if (data.oscSend    !== undefined) oscSendOn    = data.oscSend;
-        saveOSCState();
-        renderOSCPorts();
-        updateOSCStatus();
-
-        let connType = 'unknown connection type';
-        if (data.isServerMachine)                connType = 'same machine';
-        else if (MY_IP.startsWith('100.'))       connType = 'Remote via Tailscale';
-        else if (MY_IP.startsWith('192.168.4.')) connType = 'Local via access point';
-        else if (MY_IP.startsWith('10.0.0.'))   connType = 'Local via ethernet switch';
-        else if (MY_IP.startsWith('192.168'))    connType = 'Local via WiFi';
-
-        document.getElementById('client-connection').textContent = connType;
-        document.getElementById('tab-count').textContent =
-          `${data.tabCount} tab${data.tabCount !== 1 ? 's' : ''}`;
-
-        if (ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: 'client_meta', os, connType }));
-        }
-      }
-
-      if (data.type === 'client_count') {
-        document.getElementById('client-count').textContent =
-          `${data.count} client${data.count !== 1 ? 's' : ''}`;
-
-        if (data.tabCount !== undefined) {
-          document.getElementById('tab-count').textContent =
-            `${data.tabCount} tab${data.tabCount !== 1 ? 's' : ''}`;
-        }
-
-        if (data.allClients) {
-          const container = document.getElementById('signals-container');
-
-          data.allClients.forEach(client => {
-            const sectionId = `section-${client.ip.replace(/\W+/g, '-')}`;
-            if (!document.getElementById(sectionId)) {
-              container.appendChild(createSignalSection(client.ip));
-            }
-            updateSectionHeading(client.ip, client, client.ip === MY_IP);
-          });
-
-          if (MY_IP) {
-            const mySection = document.getElementById(`section-${MY_IP.replace(/\W+/g, '-')}`);
-            if (mySection && container.firstChild !== mySection) {
-              container.insertBefore(mySection, container.firstChild);
-            }
-          }
-        }
-      }
-
-      if (data.type === 'routing') {
-        routing = data.routing;
-        renderSensorSignals();
-      }
-
-      handleIncomingSignal(data);
-    };
-
-    ws.onclose = () => setStatus('ws-status', 'disconnected', false);
-
-    // ═══════════════════════════════════════════════════
-    // HELPERS
-    // ═══════════════════════════════════════════════════
-
-    function setStatus(id, text, connected) {
-      const el = document.getElementById(id);
-      if (!el) return;
-      el.textContent = text;
-      el.className = connected === true ? 'connected'
-                   : connected === false ? 'disconnected'
-                   : 'neutral';
-    }
-  </script>
+  }
+
+  if (data.type === 'osc' || data.type === 'json' || data.type === 'midi') {
+    handleIncomingSignal(data);
+  }
+};
+
+// ═══════════════════════════════════════════════════
+// SECTION HEADING UPDATE
+// ═══════════════════════════════════════════════════
+
+function updateSectionHeading(clientInfo) {
+  const { ip, os: clientOs, connType, tabCount, oscReceive } = clientInfo;
+  const sectionId = `section-${ip.replace(/\W+/g, '-')}`;
+  const h3 = document.getElementById(`heading-${sectionId}`);
+  if (!h3) return;
+
+  const isMe    = ip === MY_IP;
+  const osPart  = clientOs   ? ` (${clientOs})`  : '';
+  const tabPart = tabCount > 1 ? ` · ${tabCount} tabs` : '';
+  const oscPart = oscReceive  ? ' · OSC :9000'    : '';
+  const mePart  = isMe        ? ' · this client'  : '';
+
+  h3.textContent = `${ip}${osPart}${tabPart}${oscPart}${mePart}`;
+}
+
+// ═══════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════
+
+function detectOS() {
+  const ua = navigator.userAgent;
+  if (ua.includes('CrOS'))    return 'ChromeOS';
+  if (ua.includes('Mac OS X')) return 'macOS';
+  if (ua.includes('Windows')) return 'Windows';
+  if (ua.includes('Android')) return 'Android';
+  if (ua.includes('iPhone') || ua.includes('iPad')) return 'iOS';
+  if (ua.includes('Linux'))   return 'Linux';
+  return 'Unknown OS';
+}
+
+function setStatus(id, text, connected) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent  = text;
+  el.className    = connected === true ? 'connected' : connected === false ? 'disconnected' : 'neutral';
+}
+</script>
 </body>
 </html>
