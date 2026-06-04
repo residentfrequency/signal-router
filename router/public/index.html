@@ -64,7 +64,7 @@ input[type=number] {
   color: #00ff88;
   border: 1px solid #1a1a1a;
   padding: 0.15em;
-  width: 3.2em;
+  width: 4em;
   font-family: monospace;
   text-align: center;
   font-size: 0.85em;
@@ -540,13 +540,13 @@ function ensureSection(source) {
     table.id = `signals-${source.replace(/\W+/g, '-')}`;
     table.innerHTML = `
       <tr>
-        <th style="width:28%">SIGNAL</th>
+        <th style="width:24%">SIGNAL</th>
         <th style="width:10%">RAW</th>
         <th style="width:10%">MIDI</th>
         <th style="width:9%">CH</th>
         <th style="width:9%">CC</th>
-        <th style="width:9%">MIN</th>
-        <th style="width:9%">MAX</th>
+        <th style="width:10%">MIN</th>
+        <th style="width:10%">MAX</th>
         <th style="width:8%">OUT</th>
       </tr>
     `;
@@ -568,7 +568,6 @@ function ensureRow(data) {
 
   const table  = ensureSection(source);
   const assign = getAssignment(key);
-  const isSensorType = data.type === 'osc';  // osc sensors have min/max; json is already 0-1
 
   const row  = table.insertRow();
   row.id     = rowId;
@@ -583,10 +582,10 @@ function ensureRow(data) {
          value="${assign.cc ?? ''}" placeholder="—"
          onchange="setAssignment('${key}', 'cc', +this.value); applyMidiOut('${key}')"></td>
     <td><input type="number" min="0" max="9999"
-         value="${assign.min ?? ''}" placeholder="—" ${isSensorType ? '' : 'disabled'}
+         value="${assign.min ?? data.min ?? 0}" placeholder="—" 
          onchange="setAssignment('${key}', 'min', +this.value)"></td>
     <td><input type="number" min="0" max="9999"
-         value="${assign.max ?? ''}" placeholder="—" ${isSensorType ? '' : 'disabled'}
+         value="${assign.max ?? data.max ?? 1}" placeholder="—" 
          onchange="setAssignment('${key}', 'max', +this.value)"></td>
     <td><button class="btn on" id="out-${safeKey}"
          onclick="toggleOut('${key}', '${safeKey}')">ON</button></td>

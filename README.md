@@ -102,7 +102,6 @@ pip3 install -r sensors/distance/requirements.txt --break-system-packages
 # Optional - for enabling MIDI controllers via Pi's USB port, these are required:
 sudo apt install libasound2-dev -y
 pip3 install -r controllers/requirements.txt --break-system-packages
-
 ```
 
 ### 4. Clone the repo
@@ -158,8 +157,7 @@ sudo systemctl start router controllers
 
 **distance.service** runs `python3 -u main.py` from `~/signal-router/sensors/distance/`
 
-**controllers.service** runs `python3 -u main.py from ~/signal-router/controllers/` (optional)
-
+**controllers.service** runs `python3 -u main.py` from `~/signal-router/controllers/` (optional)
 
 Check status:
 ```bash
@@ -498,7 +496,9 @@ Three connection modes:
 
 ## Signal format
 
-All signals broadcast as WebSocket JSON. Three message types reflecting the origin format of the signal:
+All signals broadcast as WebSocket JSON. Three message types reflecting the origin format of the signal.
+
+Every signal includes `min` and `max` fields declaring the expected value range. The router UI uses these to normalize raw values to MIDI 0–127. Signal sources are responsible for declaring their own range — the router does not infer or hardcode ranges.
 
 **osc** — physical sensor, originated as OSC UDP (distance sensor, Kinect, any OSC sender on port 5005):
 ```json
@@ -506,21 +506,25 @@ All signals broadcast as WebSocket JSON. Three message types reflecting the orig
   "type": "osc",
   "device": "osc/pi-hc-sr04/distance-cm",
   "value": 142.3,
-  "source": "127.0.0.1"
+  "min": 5,
+  "max": 400,
+  "source": "adrian-pi"
 }
 ```
 
-**json** — browser or HTTP origin, full float 0–1 (mic Web Audio analysis, moire derived signals, ESP32 via Supabase):
+**json** — browser or HTTP origin (mic Web Audio analysis, moire derived signals, ESP32 via Supabase). Value range depends on source — normalized 0–1 for browser-generated signals, real-world units for sensor data:
 ```json
 {
   "type": "json",
-  "device": "json/mic-192.168.0.5/rms",
-  "value": 0.847,
-  "source": "192.168.0.5"
+  "device": "json/esp32-am2320/temp_c",
+  "value": 23.8,
+  "min": 0,
+  "max": 50,
+  "source": "adrian-pi"
 }
 ```
 
-**midi** — MIDI controller via browser WebMIDI API (IAC Driver, loopMIDI, USB controllers) or Pi USB via controllers/main.py:
+**midi** — MIDI controller via browser WebMIDI API (IAC Driver, loopMIDI, USB controllers) or Pi USB via controllers/main.py. Value is always 0–127 for CC messages; min/max not applicable:
 ```json
 {
   "type": "midi",
@@ -528,11 +532,22 @@ All signals broadcast as WebSocket JSON. Three message types reflecting the orig
   "msgType": "cc",
   "channel": 3,
   "cc": 1,
-  "value": 64
+  "value": 64,
+  "source": "192.168.0.5"
 }
 ```
 
 The `device` field includes the type as a prefix — `osc/`, `json/`, or `midi/` — making the origin format visible in the router UI signal table.
+
+### Adding a new signal source
+
+Any device or script that sends signals should include `min` and `max` in its message. For OSC senders, pass min and max as additional float arguments after the value — the router reads `args[0]` as value, `args[1]` as min, `args[2]` as max. For WebSocket JSON senders, include `min` and `max` as top-level fields alongside `value`.
+
+### Channel assignments
+
+The router UI lets you assign each signal to a MIDI channel and CC number. These assignments are saved in the browser's localStorage keyed by device name — they persist across page refreshes and Pi reboots, and survive on any browser that has previously configured them. They are not stored on the Pi.
+
+To clear all assignments: open browser console and run `localStorage.clear()` then refresh.
 
 ### Receiving in Python
 
@@ -544,9 +559,12 @@ async def listen():
         async for msg in ws:
             data = json.loads(msg)
             if data['type'] == 'osc':
-                print(data['device'], data['value'])
+                # normalize using declared range
+                norm = (data['value'] - data['min']) / (data['max'] - data['min'])
+                print(data['device'], norm)
             elif data['type'] == 'json':
-                print(data['device'], data['value'])   # already 0-1
+                norm = (data['value'] - data.get('min', 0)) / (data.get('max', 1) - data.get('min', 0))
+                print(data['device'], norm)
             elif data['type'] == 'midi':
                 print(data['device'], data['value'] / 127)
 
@@ -559,27 +577,26 @@ asyncio.run(listen())
 const ws = new WebSocket('wss://rf.postoccupancy.com');
 ws.onmessage = (event) => {
   const data = JSON.parse(event.data);
-  if (data.type === 'osc') {
-    // data.value is raw sensor value e.g. 142.3cm
-    // normalize using routing min/max
-  }
-  if (data.type === 'json') {
-    // data.value is float 0-1 already
+  if (data.type === 'osc' || data.type === 'json') {
+    const min  = data.min ?? 0;
+    const max  = data.max ?? 1;
+    const norm = Math.max(0, Math.min(1, (data.value - min) / (max - min)));
+    // norm is 0-1
   }
   if (data.type === 'midi') {
-    // data.value is 0-127, normalize: data.value / 127
+    const norm = data.value / 127;  // CC is always 0-127
   }
 };
 ```
 
 ### Receiving as OSC
 
-Every connected browser client automatically receives all signals as OSC UDP on port 9000. Open an OSC listener on port 9000 in TouchDesigner, VCV Rack, or Max for Live.
+Every connected browser that has RECEIVE ON gets all signals as OSC UDP on port 9000. Open an OSC listener on port 9000 in TouchDesigner, VCV Rack, or Max for Live.
 
 OSC address format mirrors the device field:
 ```
 /osc/pi-hc-sr04/distance-cm   142.3  0.369
-/json/mic-192_168_0_5/rms     0.847  0.847
+/json/esp32-am2320/temp_c     23.8   0.476
 /midi/Teensy_MIDI/ch3/cc1     0.504  64
 ```
 
@@ -587,10 +604,10 @@ osc and json messages carry raw value + normalized 0–1. midi CC messages carry
 
 To send OSC to the router, send UDP to port 5005 (local network only — not available via Cloudflare tunnel, use Tailscale for remote OSC). Toggle SEND ON in the OSC ports table to register your IP as an allowed sender.
 
-OSC address format for inbound:
+OSC address format for inbound — pass value, min, max as arguments:
 ```
-/sensor/name/param value
-e.g. /sensor/kinect/x 0.42
+/sensor/name/param value min max
+e.g. /sensor/kinect/x 0.42 0.0 1.0
 ```
 
 ---
@@ -606,7 +623,6 @@ e.g. /sensor/kinect/x 0.42
 | `/etc/hostapd/hostapd.conf` | AP mode SSID and password |
 | `/etc/NetworkManager/dispatcher.d/98-eth0-reconnect` | Auto-reconnect ethernet on WiFi up |
 | `~/signal-router/router/.env` | Supabase credentials (not in repo) |
-| `~/signal-router/router/routing.json` | Signal routing config (not in repo) |
 | `~/.cloudflared/cert.pem` | Cloudflare auth certificate |
 | `/usr/local/bin/rf-status` | Status script |
 | `/usr/local/bin/wifi-mode` | WiFi management script |
@@ -629,7 +645,6 @@ Before a session:
 8. Allow MIDI access when Chrome asks
 
 After a session:
-
 ```bash
 sudo systemctl start cloudflared   # re-enable if stopped
 ```
@@ -666,10 +681,13 @@ Check memory and processes:
 rf-status
 ps aux | grep node
 ```
-VS Code Remote SSH is the most common cause — kills it with `pkill -9 -f vscode-server`.
+VS Code Remote SSH is the most common cause — kill it with `pkill -9 -f vscode-server`.
 
 **Distance sensor showing dashes in router**
 OSC packets from `sensors/distance/main.py` use subnet broadcast which doesn't loop back on Linux. Check `main.py` sends to both broadcast and `127.0.0.1`. Verify OSC inbound whitelist in server.js includes broadcast addresses.
 
 **`wifi-mode` reports success but SSID unchanged**
 Network not in scan range. Run `sudo nmcli dev wifi rescan` then retry. Check signal strength with `sudo nmcli dev wifi list`.
+
+**Channel assignments missing after switching browsers**
+Assignments are stored in localStorage per browser. They don't follow you to a different machine or browser profile. Re-enter assignments or export/import via browser console if needed.

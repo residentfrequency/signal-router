@@ -4,6 +4,7 @@ from pythonosc import udp_client
 import socket
 import sys
 
+
 # ─── Network ───────────────────────────────────────────
 """
 OSC broadcast explanation:
@@ -86,6 +87,18 @@ last_button    = GPIO.HIGH
 
 print("Distance sensor ready. Press toggle button to enable.")
 
+import struct
+
+def send_osc(client, address, *args):
+    def pad(s):
+        b = s.encode() + b'\x00'
+        return b + b'\x00' * ((4 - len(b) % 4) % 4)
+    tags = ',' + 'f' * len(args)
+    msg  = pad(address) + pad(tags)
+    for arg in args:
+        msg += struct.pack('>f', arg)
+    client._sock.sendto(msg, (client._address, client._port))
+
 try:
     while True:
         reading = GPIO.input(TOGGLE_PIN)
@@ -106,11 +119,10 @@ try:
                     rate = int(min(abs(dist - prev[s["name"]]) * 10, 127))
                     prev[s["name"]] = dist
 
-                    osc_client.send_message(f"/sensor/{s['name']}/distance-cm", float(dist))
-                    osc_local.send_message( f"/sensor/{s['name']}/distance-cm", float(dist))
-                    osc_client.send_message(f"/sensor/{s['name']}/change-rate",  float(rate))
-                    osc_local.send_message( f"/sensor/{s['name']}/change-rate",  float(rate))
-
+                    send_osc(osc_client, f"/sensor/{s['name']}/distance-cm", float(dist), float(s["min_cm"]), float(s["max_cm"]))
+                    send_osc(osc_local,  f"/sensor/{s['name']}/distance-cm", float(dist), float(s["min_cm"]), float(s["max_cm"]))
+                    send_osc(osc_client, f"/sensor/{s['name']}/change-rate",  float(rate), 0.0, 127.0)
+                    send_osc(osc_local,  f"/sensor/{s['name']}/change-rate",  float(rate), 0.0, 127.0)
                     print(f"{s['name']}: {dist:.1f}cm  rate: {rate}")
 
         time.sleep(0.05)

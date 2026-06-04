@@ -175,6 +175,8 @@ oscInSocket.on('message', (buf, rinfo) => {
   }
 
   const msg = parseOSCMessage(buf);
+  console.log('OSC raw args:', msg?.args, 'buffer length:', buf.length);
+  if (msg) console.log('OSC received:', msg.address, msg.args);
   if (!msg) return;
 
   const parts = msg.address.split('/').filter(Boolean);
@@ -183,6 +185,8 @@ oscInSocket.on('message', (buf, rinfo) => {
     const name  = parts[1];
     const param = parts[2];
     const value = msg.args[0];
+    const min   = msg.args[1] ?? undefined;
+    const max   = msg.args[2] ?? undefined;
     const key   = `osc/${name}/${param}`;
 
     broadcast({
@@ -190,12 +194,16 @@ oscInSocket.on('message', (buf, rinfo) => {
       device: key,
       name, param, value,
       source: senderIp,
-      enabled: true
+      enabled: true,
+      ...(min !== undefined && { min }),
+      ...(max !== undefined && { max })
     });
     sendToSC(msg.address, ...msg.args);
 
   } else {
     const value = msg.args[0];
+    const min   = msg.args[1] ?? undefined;
+    const max   = msg.args[2] ?? undefined;
     const key   = `osc/${senderIp}${msg.address}`;
 
     broadcast({
@@ -203,7 +211,9 @@ oscInSocket.on('message', (buf, rinfo) => {
       device: key,
       value: typeof value === 'number' ? value : 0,
       source: senderIp,
-      enabled: true
+      enabled: true,
+      ...(min !== undefined && { min }),
+      ...(max !== undefined && { max })
     });
     sendToSC(msg.address, ...msg.args);
   }
@@ -423,9 +433,9 @@ setInterval(async () => {
     if (error) { console.error('Supabase error:', error.message); return; }
 
     if (data?.[0]) {
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c', value: data[0].temp_c, source: os.hostname() });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f', value: data[0].temp_f, source: os.hostname() });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/rh',     value: data[0].rh,     source: os.hostname() });
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c', value: data[0].temp_c, source: os.hostname(), min: 0, max: 50 });
+      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f', value: data[0].temp_f, source: os.hostname(), min: 32, max: 122 });
+      broadcast({ type: 'json', device: 'json/esp32-am2320/rh',     value: data[0].rh,     source: os.hostname(), min: 0, max: 100 });
     }
   } catch (e) {
     console.error('Error fetching from Supabase:', e.message);
