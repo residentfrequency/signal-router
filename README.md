@@ -610,6 +610,11 @@ OSC address format for inbound — pass value, min, max as arguments:
 e.g. /sensor/kinect/x 0.42 0.0 1.0
 ```
 
+Standard OSC bundles are accepted on the same port, including nested bundles.
+The router forwards all messages from one bundle to browsers in one
+`signal_batch` WebSocket message while retaining compatibility with individual
+OSC messages.
+
 ---
 
 ## Configuration files reference

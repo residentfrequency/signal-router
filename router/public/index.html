@@ -741,6 +741,10 @@ ws.onmessage = event => {
   if (data.type === 'osc' || data.type === 'json' || data.type === 'midi') {
     handleIncomingSignal(data);
   }
+
+  if (data.type === 'signal_batch' && Array.isArray(data.signals)) {
+    data.signals.forEach(handleIncomingSignal);
+  }
 };
 
 // ═══════════════════════════════════════════════════

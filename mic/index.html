@@ -190,6 +190,7 @@
 
   new p5((p) => {
     let spectroBuffer = null;
+    let spectroFrame = 0;
 
     p.setup = () => {
       p.createCanvas(p.windowWidth, p.windowHeight).parent('canvas-container');
@@ -318,11 +319,13 @@
         spectroBuffer.rect(p.width - colW, y, colW, 3);
       }
 
-      // Centroid dot on right edge
-      const centroidY = p.map(signals.centroid, 0, 1, p.height, 0);
-      spectroBuffer.noStroke();
-      spectroBuffer.fill(40, 80, 100, 100);
-      spectroBuffer.ellipse(p.width - colW/2, centroidY, 4, 4);
+      // Spaced samples remain dots instead of overlapping into a solid band.
+      if (spectroFrame++ % 3 === 0) {
+        const centroidY = p.map(signals.centroid, 0, 1, p.height, 0);
+        spectroBuffer.noStroke();
+        spectroBuffer.fill(40, 80, 100, 100);
+        spectroBuffer.ellipse(p.width - colW/2, centroidY, 2, 2);
+      }
 
       p.background(0);
       p.image(spectroBuffer, 0, 0);

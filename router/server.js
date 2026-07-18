@@ -102,6 +102,24 @@ function parseOSCMessage(buf) {
   } catch (e) { return null; }
 }
 
+function parseOSCPacket(buf) {
+  if (buf.length < 8 || buf.toString('ascii', 0, 8) !== '#bundle\0') {
+    const message = parseOSCMessage(buf);
+    return message ? [message] : [];
+  }
+
+  const messages = [];
+  let offset = 16; // bundle marker plus 8-byte timetag
+  while (offset + 4 <= buf.length) {
+    const size = buf.readInt32BE(offset);
+    offset += 4;
+    if (size <= 0 || offset + size > buf.length) return [];
+    messages.push(...parseOSCPacket(buf.subarray(offset, offset + size)));
+    offset += size;
+  }
+  return offset === buf.length ? messages : [];
+}
+
 // ─── SuperCollider OSC sender ─────────────────────────────────────────────────
 
 const scSocket = dgram.createSocket('udp4');
@@ -156,6 +174,14 @@ function broadcast(data) {
   broadcastOSC(data);
 }
 
+function broadcastSignalBatch(signals) {
+  const json = JSON.stringify({ type: 'signal_batch', signals });
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(json);
+  });
+  for (const signal of signals) broadcastOSC(signal);
+}
+
 // ─── OSC inbound listener ─────────────────────────────────────────────────────
 
 const oscInSocket = dgram.createSocket('udp4');
@@ -164,9 +190,15 @@ oscInSocket.on('message', (buf, rinfo) => {
   const rawIp    = rinfo.address.replace(/^::ffff:/, '');
   const senderIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
 
-  const msg = parseOSCMessage(buf);
-  if (!msg) return;
+  const signals = parseOSCPacket(buf)
+    .map(msg => routeOSCMessage(msg, senderIp))
+    .filter(Boolean);
 
+  if (signals.length === 1) broadcast(signals[0]);
+  else if (signals.length > 1) broadcastSignalBatch(signals);
+});
+
+function routeOSCMessage(msg, senderIp) {
   const parts = msg.address.split('/').filter(Boolean);
 
   if (parts[0] === 'sensor' && parts.length >= 3) {
@@ -177,7 +209,7 @@ oscInSocket.on('message', (buf, rinfo) => {
     const max   = msg.args[2] ?? undefined;
     const key   = `osc/${name}/${param}`;
 
-    broadcast({
+    const signal = {
       type: 'osc',
       device: key,
       name, param, value,
@@ -185,8 +217,9 @@ oscInSocket.on('message', (buf, rinfo) => {
       enabled: true,
       ...(min !== undefined && { min }),
       ...(max !== undefined && { max })
-    });
+    };
     sendToSC(msg.address, ...msg.args);
+    return signal;
 
   } else {
     const value = msg.args[0];
@@ -194,7 +227,7 @@ oscInSocket.on('message', (buf, rinfo) => {
     const max   = msg.args[2] ?? undefined;
     const key   = `osc/${senderIp}${msg.address}`;
 
-    broadcast({
+    const signal = {
       type: 'osc',
       device: key,
       value: typeof value === 'number' ? value : 0,
@@ -202,10 +235,11 @@ oscInSocket.on('message', (buf, rinfo) => {
       enabled: true,
       ...(min !== undefined && { min }),
       ...(max !== undefined && { max })
-    });
+    };
     sendToSC(msg.address, ...msg.args);
+    return signal;
   }
-});
+}
 
 oscInSocket.bind(OSC_IN_PORT, '0.0.0.0', () => {
   console.log(`OSC inbound listening on port ${OSC_IN_PORT}`);
