@@ -8,6 +8,7 @@ Demo sites:
 - Router: [https://rf.postoccupancy.com](https://rf.postoccupancy.com)
 - Moire Pattern Generator: [https://rf.postoccupancy.com/moire](https://rf.postoccupancy.com/moire)
 - Browser Mic: [https://rf.postoccupancy.com/mic](https://rf.postoccupancy.com/mic)
+- Shared Signal Visualizer: open any signal's VIEW link from the router dashboard
 
 ---
 
@@ -66,6 +67,8 @@ signal-router/
   moire/            Generative visual sketch
     index.html
   mic/              Microphone audio analysis
+    index.html
+  visualizer/       Shared time-domain and spectral signal viewer
     index.html
   pi-setup/         Pi configuration reference
     systemd/

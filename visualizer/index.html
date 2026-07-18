@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RF · visualizer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}body{background:#050505;color:#d8ffe9;font:12px "Courier New",monospace;overflow:hidden}
+#canvas{position:fixed;inset:0;width:100vw;height:100vh}.bar{position:fixed;z-index:2;left:0;right:0;display:flex;align-items:center;gap:.55rem;padding:.7rem 1rem;background:rgba(0,0,0,.82);backdrop-filter:blur(5px)}
+#top{top:0}#bottom{bottom:0;flex-wrap:wrap}.title{margin-right:auto;min-width:10rem}.device{color:#63ffad}.dim{color:#668075}.btn,select,input{font:inherit;color:#88ffbf;background:#090d0b;border:1px solid #294236;padding:.3rem .55rem}.btn{cursor:pointer}.btn.active{color:#041008;background:#70ffb4}.btn.audio{border-color:#c49b3c;color:#ffd66e}.btn.audio.active{background:#ffd66e;color:#171000}
+label{display:flex;align-items:center;gap:.35rem;color:#779184}input[type=range]{padding:0;width:8rem;accent-color:#70ffb4}#stats{margin-left:auto;text-align:right;line-height:1.45}.warning{color:#ff846f}@media(max-width:760px){.bar{padding:.45rem;gap:.3rem}.title{width:100%;margin:0}.btn{padding:.25rem}.hide-small{display:none}#stats{width:100%;text-align:left}}
+</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+<div class="bar" id="top">
+  <div class="title"><span class="dim">SIGNAL</span> <span class="device" id="device"></span></div>
+  <button class="btn active" data-view="time">TIME SERIES</button>
+  <button class="btn" data-view="wave">WAVEFORM</button>
+  <button class="btn" data-view="spectrum">SPECTRUM</button>
+  <button class="btn" data-view="spectrogram">SPECTROGRAM</button>
+  <button class="btn audio" id="audio">SONIFY</button>
+</div>
+<div class="bar" id="bottom">
+  <label>WINDOW <input id="window" type="range" min="0" max="8" step="1" value="4"><span id="window-value">2 s</span></label>
+  <label>RENDER <input id="fps" type="range" min="5" max="60" step="1" value="30"><span id="fps-value">30 fps</span></label>
+  <label class="hide-small">GAIN <input id="gain" type="range" min="0" max="100" value="18"><span id="gain-value">18%</span></label>
+  <div id="stats"><span id="status" class="warning">connecting</span><br><span class="dim" id="detail">waiting for samples</span></div>
+</div>
+<script>
+const deviceKey=new URLSearchParams(location.search).get('device')||'';
+const deviceEl=document.getElementById('device'),fpsEl=document.getElementById('fps'),gainEl=document.getElementById('gain'),audioEl=document.getElementById('audio'),statusEl=document.getElementById('status'),detailEl=document.getElementById('detail');
+deviceEl.textContent=deviceKey||'no device selected';
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d');
+const spectro=document.createElement('canvas'),sctx=spectro.getContext('2d');
+const windows=[.1,.25,.5,1,2,5,10,30,60];
+let view='time',windowSec=windows[+windowEl().value],renderFps=30,lastDraw=0,lastSpectro=0;
+let samples=[],unit='',lastSequence=null,gapCount=0,arrivalLast=0,arrivalMaxGap=0;
+let audioCtx=null,osc=null,audioGain=null,audioOn=false;
+
+function windowEl(){return document.getElementById('window')}
+function resize(){const d=devicePixelRatio||1,w=innerWidth,h=innerHeight;canvas.width=w*d;canvas.height=h*d;canvas.style.width=w+'px';canvas.style.height=h+'px';ctx.setTransform(d,0,0,d,0,0);spectro.width=Math.max(1,Math.floor(w*d));spectro.height=Math.max(1,Math.floor(h*d));sctx.fillStyle='#050505';sctx.fillRect(0,0,spectro.width,spectro.height)}
+addEventListener('resize',resize);resize();
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{view=b.dataset.view;document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x===b));if(view==='spectrogram'){sctx.fillStyle='#050505';sctx.fillRect(0,0,spectro.width,spectro.height)}});
+windowEl().oninput=e=>{windowSec=windows[+e.target.value];document.getElementById('window-value').textContent=windowSec+' s'};
+fpsEl.oninput=e=>{renderFps=+e.target.value;document.getElementById('fps-value').textContent=renderFps+' fps'};
+gainEl.oninput=e=>{document.getElementById('gain-value').textContent=e.target.value+'%';if(audioGain)audioGain.gain.setTargetAtTime(+e.target.value/1000,audioCtx.currentTime,.02)};
+
+audioEl.onclick=async()=>{if(!audioCtx){audioCtx=new AudioContext();osc=audioCtx.createOscillator();audioGain=audioCtx.createGain();osc.type='sine';audioGain.gain.value=+gainEl.value/1000;osc.connect(audioGain).connect(audioCtx.destination);osc.start()}await audioCtx.resume();audioOn=!audioOn;audioGain.gain.setTargetAtTime(audioOn?+gainEl.value/1000:0,audioCtx.currentTime,.025);audioEl.classList.toggle('active',audioOn);audioEl.textContent=audioOn?'SONIFYING':'SONIFY'};
+
+function append(incoming){if(!incoming.length)return;const now=performance.now();if(arrivalLast)arrivalMaxGap=Math.max(arrivalMaxGap,now-arrivalLast);arrivalLast=now;for(const s of incoming){if(lastSequence!==null&&((s[0]-lastSequence)>>>0)!==1)gapCount++;lastSequence=s[0];samples.push({seq:s[0],t:s[1],v:s[2]})}const newest=samples.at(-1).t;while(samples.length&&newest-samples[0].t>120e6)samples.shift();if(samples.length>200000)samples.splice(0,samples.length-200000)}
+const ws=new WebSocket(`wss://${location.host}`);
+ws.onopen=()=>{statusEl.textContent='connected';statusEl.className=''};ws.onclose=()=>{statusEl.textContent='disconnected';statusEl.className='warning'};ws.onerror=()=>{statusEl.textContent='error';statusEl.className='warning'};
+ws.onmessage=e=>{const d=JSON.parse(e.data);if(d.type==='sample_batch'){for(const s of d.streams||[])if(s.device===deviceKey){unit=s.unit||unit;append(s.samples)}}else if((d.type==='osc'||d.type==='json')&&d.device===deviceKey&&Number.isFinite(d.value)){unit=d.unit||unit;append([[(lastSequence??0)+1,Date.now()*1000,d.value]])}};
+
+function visible(){if(!samples.length)return[];const end=samples.at(-1).t,start=end-windowSec*1e6;let lo=0,hi=samples.length;while(lo<hi){const m=(lo+hi)>>1;if(samples[m].t<start)lo=m+1;else hi=m}return samples.slice(lo)}
+function rateOf(a){if(a.length<2)return 0;return(a.length-1)*1e6/(a.at(-1).t-a[0].t)}
+function bounds(a){let lo=Infinity,hi=-Infinity;for(const s of a){lo=Math.min(lo,s.v);hi=Math.max(hi,s.v)}if(!isFinite(lo))return[0,1];if(hi===lo){const p=Math.abs(lo)*.01||1;lo-=p;hi+=p}return[lo,hi]}
+function frame(){const w=innerWidth,h=innerHeight,top=58,bottom=h-64;ctx.fillStyle='#050505';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#173024';ctx.lineWidth=1;for(let i=0;i<=4;i++){const y=top+(bottom-top)*i/4;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke()}return{w,h,top,bottom,height:bottom-top}}
+function labels(f,left,right,sub){ctx.fillStyle='#668075';ctx.font='11px Courier New';ctx.textAlign='left';ctx.fillText(left,10,f.top+14);ctx.textAlign='right';ctx.fillText(right,f.w-10,f.top+14);ctx.textAlign='left';ctx.fillText(sub,10,f.bottom-8)}
+function drawLine(a,normalized=false){const f=frame();if(a.length<2)return;let[lo,hi]=bounds(a),mean=0;if(normalized){mean=a.reduce((q,s)=>q+s.v,0)/a.length;let peak=0;for(const s of a)peak=Math.max(peak,Math.abs(s.v-mean));peak||=1;lo=-peak;hi=peak}const start=a[0].t,end=a.at(-1).t,rate=rateOf(a),gap=rate?3e6/rate:Infinity;ctx.strokeStyle='#70ffb4';ctx.lineWidth=1.25;ctx.beginPath();let pen=false,prevT=null;for(const s of a){const x=(s.t-start)/(end-start)*f.w,val=normalized?s.v-mean:s.v,y=f.bottom-(val-lo)/(hi-lo)*f.height;if(!pen||prevT===null||s.t-prevT>gap)ctx.moveTo(x,y);else ctx.lineTo(x,y);pen=true;prevT=s.t}ctx.stroke();labels(f,normalized?'centered amplitude':`max ${hi.toFixed(4)} ${unit}`,normalized?'':`min ${lo.toFixed(4)} ${unit}`,`${((end-start)/1e6).toFixed(2)} s · ${a.length} samples`)}
+
+function fftData(a){if(a.length<8)return null;let n=1;while(n*2<=Math.min(2048,a.length))n*=2;const src=a.slice(-n),re=new Float64Array(n),im=new Float64Array(n);let mean=src.reduce((q,s)=>q+s.v,0)/n;for(let i=0;i<n;i++)re[i]=(src[i].v-mean)*(.5-.5*Math.cos(2*Math.PI*i/(n-1)));for(let i=1,j=0;i<n;i++){let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;if(i<j){[re[i],re[j]]=[re[j],re[i]];[im[i],im[j]]=[im[j],im[i]]}}for(let len=2;len<=n;len<<=1){const ang=-2*Math.PI/len;for(let i=0;i<n;i+=len)for(let j=0;j<len/2;j++){const c=Math.cos(ang*j),s=Math.sin(ang*j),u=re[i+j],v=im[i+j],x=re[i+j+len/2]*c-im[i+j+len/2]*s,y=re[i+j+len/2]*s+im[i+j+len/2]*c;re[i+j]=u+x;im[i+j]=v+y;re[i+j+len/2]=u-x;im[i+j+len/2]=v-y}}const rate=rateOf(src),mag=new Float64Array(n/2);for(let i=1;i<n/2;i++)mag[i]=Math.hypot(re[i],im[i]);return{mag,rate,n}}
+function drawSpectrum(spec){const f=frame();if(!spec)return;const minHz=spec.rate/spec.n,maxHz=spec.rate/2,logMin=Math.log10(minHz),logMax=Math.log10(maxHz);let peak=0;for(const x of spec.mag)peak=Math.max(peak,x);ctx.strokeStyle='#70ffb4';ctx.beginPath();for(let i=1;i<spec.mag.length;i++){const hz=i*spec.rate/spec.n,x=(Math.log10(hz)-logMin)/(logMax-logMin)*f.w,y=f.bottom-(spec.mag[i]/(peak||1))*f.height;i===1?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke();labels(f,`${maxHz.toFixed(2)} Hz Nyquist`,'',`${minHz.toFixed(3)} Hz/bin · FFT ${spec.n}`)}
+function color(amp,freqNorm){const hue=210-180*freqNorm,light=5+55*Math.sqrt(amp);return`hsl(${hue} 85% ${light}%)`}
+function updateSpectrogram(spec){if(!spec||performance.now()-lastSpectro<80)return;lastSpectro=performance.now();const d=devicePixelRatio||1,col=Math.max(2,Math.round(2*d)),H=spectro.height,W=spectro.width;sctx.drawImage(spectro,col,0,W-col,H,0,0,W-col,H);sctx.fillStyle='#050505';sctx.fillRect(W-col,0,col,H);let peak=0;for(const x of spec.mag)peak=Math.max(peak,x);const minHz=spec.rate/spec.n,maxHz=spec.rate/2,l0=Math.log10(minHz),l1=Math.log10(maxHz),rows=new Float32Array(H);for(let i=1;i<spec.mag.length;i++){const hz=i*spec.rate/spec.n,y=Math.max(0,Math.min(H-1,Math.round((1-(Math.log10(hz)-l0)/(l1-l0))*(H-1))));rows[y]=Math.max(rows[y],spec.mag[i]/(peak||1))}for(let y=0;y<H;y++)if(rows[y]){sctx.fillStyle=color(rows[y],1-y/H);sctx.fillRect(W-col,y,col,1)}}
+function drawSpectrogram(spec){updateSpectrogram(spec);const f=frame();ctx.drawImage(spectro,0,0,spectro.width,spectro.height,0,f.top,f.w,f.height);if(spec)labels(f,`${(spec.rate/2).toFixed(2)} Hz`,'','frequency ↑ · time →')}
+function updateAudio(a){if(!audioOn||!osc||!a.length)return;const[lo,hi]=bounds(a),norm=(a.at(-1).v-lo)/(hi-lo);osc.frequency.setTargetAtTime(80*Math.pow(2,norm*4),audioCtx.currentTime,.03)}
+function render(now){requestAnimationFrame(render);if(now-lastDraw<1000/renderFps)return;lastDraw=now;const a=visible();const spec=(view==='spectrum'||view==='spectrogram')?fftData(a):null;if(view==='time')drawLine(a,false);else if(view==='wave')drawLine(a,true);else if(view==='spectrum')drawSpectrum(spec);else drawSpectrogram(spec);updateAudio(a);const rate=rateOf(a);detailEl.textContent=`${a.length} shown · ${rate.toFixed(1)} samples/s · ${gapCount} sequence gaps · max arrival gap ${arrivalMaxGap.toFixed(0)} ms`}
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

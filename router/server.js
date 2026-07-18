@@ -34,8 +34,10 @@ const wss    = new WebSocketServer({ server });
 app.use(express.static('public'));
 app.use(express.json());
 app.get('/mic.html', (req, res) => res.redirect(308, '/mic/'));
+app.get('/visualizer.html', (req, res) => res.redirect(308, `/visualizer/?${req.url.split('?')[1] || ''}`));
 app.use('/mic',   express.static('../mic'));
 app.use('/moire', express.static('../moire'));
+app.use('/visualizer', express.static('../visualizer'));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;

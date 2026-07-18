@@ -530,7 +530,7 @@ function ensureSection(source) {
     table.id = `signals-${source.replace(/\W+/g, '-')}`;
     table.innerHTML = `
       <tr>
-        <th style="width:24%">SIGNAL</th>
+        <th style="width:20%">SIGNAL</th>
         <th style="width:10%">RAW</th>
         <th style="width:10%">MIDI</th>
         <th style="width:9%">CH</th>
@@ -538,6 +538,7 @@ function ensureSection(source) {
         <th style="width:10%">MIN</th>
         <th style="width:10%">MAX</th>
         <th style="width:8%">OUT</th>
+        <th style="width:8%">VIEW</th>
       </tr>
     `;
     section.appendChild(table);
@@ -586,6 +587,7 @@ function ensureRow(data) {
          onchange="setAssignment('${key}', 'max', +this.value)"></td>
     <td><button class="btn on" id="out-${safeKey}"
          onclick="toggleOut('${key}', '${safeKey}')">ON</button></td>
+    <td><a class="btn" href="/visualizer/?device=${encodeURIComponent(key)}" target="_blank">OPEN</a></td>
   `;
 
   if (data.type === 'midi' && data.msgType === 'cc') {
