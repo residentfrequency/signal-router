@@ -188,172 +188,43 @@ function broadcastSignalBatch(signals) {
   for (const signal of signals) broadcastOSC(signal);
 }
 
-function broadcastSampleBatch(batch, oscPackets) {
+function broadcastSampleBatch(batch, oscPacket) {
   const json = JSON.stringify(batch);
   wss.clients.forEach(client => {
     if (client.readyState === 1) client.send(json);
   });
-  for (const packet of oscPackets) {
-    if (oscReceiveClients.size > 0) sendOSCPacketToClients(packet);
-    try { scSocket.send(packet, 57110, '127.0.0.1'); } catch (e) {}
-  }
+  if (oscReceiveClients.size > 0) sendOSCPacketToClients(oscPacket);
+  try { scSocket.send(oscPacket, 57110, '127.0.0.1'); } catch (e) {}
 }
 
-// ─── Timestamped presentation buffer ─────────────────────────────────────────
-
-let sampleLatencyMs = 1000;
-const ELECTRIC_SKY_PACKET_INTERVAL_MS = 63;
-let sampleLateBatches = 0;
-let sampleMaxArrivalGapMs = 0;
-let sampleLastSequenceArrivalMs = null;
-const sampleQueue = [];
-const sampleQueuedByKey = new Map();
-const sampleClockBySource = new Map();
-
-function sampleRecommendedLatencyMs() {
-  return Math.max(250, Math.ceil((sampleMaxArrivalGapMs + 100) / 250) * 250);
-}
-
-function sampleBufferStatus() {
-  return {
-    type: 'sample_buffer_status',
-    latencyMs: sampleLatencyMs,
-    queuedSequences: sampleQueue.length,
-    lateBatches: sampleLateBatches,
-    maxArrivalGapMs: Math.round(sampleMaxArrivalGapMs),
-    recommendedLatencyMs: sampleRecommendedLatencyMs()
-  };
-}
-
-function broadcastSampleBufferStatus() {
-  const json = JSON.stringify(sampleBufferStatus());
-  wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(json);
-  });
-}
-
-function setSampleLatencyMs(value) {
-  const next = Math.max(0, Math.min(6000, Math.round(Number(value) / 250) * 250));
-  if (!Number.isFinite(next) || next === sampleLatencyMs) return;
-  const delta = next - sampleLatencyMs;
-  sampleLatencyMs = next;
-  for (const entry of sampleQueue) entry.releaseAtMs += delta;
-  for (const clock of sampleClockBySource.values()) clock.baseReleaseMs += delta;
-  sampleQueue.sort((a, b) => a.releaseAtMs - b.releaseAtMs);
-  broadcastSampleBufferStatus();
-}
-
-function resetSampleSource(source, packetSequence, nowMs) {
-  for (let i = sampleQueue.length - 1; i >= 0; i--) {
-    if (sampleQueue[i].source !== source) continue;
-    sampleQueuedByKey.delete(sampleQueue[i].key);
-    sampleQueue.splice(i, 1);
-  }
-  const clock = {
-    basePacketSequence: packetSequence,
-    baseReleaseMs: nowMs + sampleLatencyMs,
-    lastPacketSequence: packetSequence
-  };
-  sampleClockBySource.set(source, clock);
-  return clock;
-}
-
-function queueSampleBatch(batch, oscPacket) {
-  const nowMs = Date.now();
-  const key = `${batch.source}:${batch.packetSequence}`;
-  const existing = sampleQueuedByKey.get(key);
-  if (existing) {
-    existing.batch.streams.push(...batch.streams);
-    existing.oscPackets.push(oscPacket);
-    return;
-  }
-
-  if (sampleLastSequenceArrivalMs !== null) {
-    sampleMaxArrivalGapMs = Math.max(sampleMaxArrivalGapMs, nowMs - sampleLastSequenceArrivalMs);
-  }
-  sampleLastSequenceArrivalMs = nowMs;
-
-  const packetSequence = batch.packetSequence >>> 0;
-  let clock = sampleClockBySource.get(batch.source);
-  const sequenceStep = clock ? (packetSequence - clock.lastPacketSequence) >>> 0 : 0;
-  if (!clock || sequenceStep > 100000) {
-    clock = resetSampleSource(batch.source, packetSequence, nowMs);
-  }
-  clock.lastPacketSequence = packetSequence;
-  const sequenceOffset = (packetSequence - clock.basePacketSequence) >>> 0;
-  const releaseAtMs = clock.baseReleaseMs +
-    sequenceOffset * ELECTRIC_SKY_PACKET_INTERVAL_MS;
-  if (releaseAtMs < nowMs) sampleLateBatches++;
-
-  const entry = {
-    key, source: batch.source, releaseAtMs, clock,
-    batch, oscPackets: [oscPacket]
-  };
-  sampleQueuedByKey.set(key, entry);
-  sampleQueue.push(entry);
-  sampleQueue.sort((a, b) => a.releaseAtMs - b.releaseAtMs);
-}
-
-setInterval(() => {
-  const nowMs = Date.now();
-  while (sampleQueue.length > 0 && sampleQueue[0].releaseAtMs <= nowMs) {
-    const entry = sampleQueue.shift();
-    sampleQueuedByKey.delete(entry.key);
-    broadcastSampleBatch(entry.batch, entry.oscPackets);
-  }
-}, 5);
-
-setInterval(broadcastSampleBufferStatus, 1000);
-
-function decodeElectricSkyBatch(messages, senderIp) {
-  const definitions = {
-    '/sensor/electric-sky/bme_batch': {
-      stride: 5,
-      fields: [
-        ['temperature', 'celsius', 2],
-        ['humidity', 'percent', 3],
-        ['pressure', 'hpa', 4]
-      ]
-    },
-    '/sensor/electric-sky/power_batch': {
-      stride: 3,
-      fields: [['power', 'mw', 2]]
-    },
-    '/sensor/electric-sky/audio_batch': {
-      stride: 3,
-      fields: [['rms', 'dbfs', 2]]
-    }
-  };
-
+function decodeScalarBatch(messages, senderIp) {
   const streams = [];
   let packetSequence = null;
   let sendTimeUs = null;
   for (const msg of messages) {
-    const definition = definitions[msg.address];
-    if (!definition || msg.args.length < 2) continue;
+    const parts = msg.address.split('/').filter(Boolean);
+    if (parts[0] !== 'batch' || parts.length < 3 || msg.args.length < 6) continue;
+    const name = parts[1];
+    const param = parts.slice(2).join('/');
     const messagePacketSequence = msg.args[0];
     const messageSendTimeUs = msg.args[1];
-    if (!Number.isFinite(messagePacketSequence) || !Number.isFinite(messageSendTimeUs)) continue;
-    if ((msg.args.length - 2) % definition.stride !== 0) continue;
+    const unit = typeof msg.args[2] === 'string' ? msg.args[2] : '';
+    if (!Number.isFinite(messagePacketSequence) || !Number.isFinite(messageSendTimeUs) ||
+        (msg.args.length - 3) % 3 !== 0) continue;
     packetSequence ??= messagePacketSequence;
     sendTimeUs ??= messageSendTimeUs;
 
-    for (const [param, unit, valueOffset] of definition.fields) {
-      const samples = [];
-      for (let i = 2; i < msg.args.length; i += definition.stride) {
-        const sequence = msg.args[i];
-        const timeUs = messageSendTimeUs + msg.args[i + 1];
-        const value = msg.args[i + valueOffset];
-        if (Number.isFinite(sequence) && Number.isFinite(timeUs) && Number.isFinite(value)) {
-          samples.push([sequence, timeUs, value]);
-        }
+    const samples = [];
+    for (let i = 3; i < msg.args.length; i += 3) {
+      const sequence = msg.args[i];
+      const timeUs = messageSendTimeUs + msg.args[i + 1];
+      const value = msg.args[i + 2];
+      if (Number.isFinite(sequence) && Number.isFinite(timeUs) && Number.isFinite(value)) {
+        samples.push([sequence, timeUs, value]);
       }
-      if (samples.length > 0) {
-        streams.push({
-          device: `osc/electric-sky/${param}`,
-          name: 'electric-sky', param, unit, samples
-        });
-      }
+    }
+    if (samples.length > 0) {
+      streams.push({ device: `osc/${name}/${param}`, name, param, unit, samples });
     }
   }
 
@@ -372,9 +243,9 @@ oscInSocket.on('message', (buf, rinfo) => {
   const rawIp    = rinfo.address.replace(/^::ffff:/, '');
   const senderIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
   const messages = parseOSCPacket(buf);
-  const electricSkyBatch = decodeElectricSkyBatch(messages, senderIp);
-  if (electricSkyBatch) {
-    queueSampleBatch(electricSkyBatch, buf);
+  const scalarBatch = decodeScalarBatch(messages, senderIp);
+  if (scalarBatch) {
+    broadcastSampleBatch(scalarBatch, buf);
     return;
   }
 
@@ -484,7 +355,6 @@ wss.on('connection', (ws, req) => {
     networkSsid: net.ssid
   }));
   ws.send(JSON.stringify({ type: 'state', state }));
-  ws.send(JSON.stringify(sampleBufferStatus()));
   ws.send(JSON.stringify({
     type: 'client_info',
     ip: clientIp,
@@ -504,11 +374,6 @@ wss.on('connection', (ws, req) => {
       if (data.type === 'osc_toggle_receive') {
         data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
         broadcastClientStats();
-        return;
-      }
-
-      if (data.type === 'set_sample_latency') {
-        setSampleLatencyMs(data.latencyMs);
         return;
       }
 
