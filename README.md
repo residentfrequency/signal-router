@@ -615,6 +615,12 @@ The router forwards all messages from one bundle to browsers in one
 `signal_batch` WebSocket message while retaining compatibility with individual
 OSC messages.
 
+Electric Sky uses one compact bundle containing `/sensor/electric-sky/bme_batch`,
+`/sensor/electric-sky/power_batch`, and `/sensor/electric-sky/audio_batch`.
+Each message starts with packet sequence and send time, followed by repeated
+sample sequence, timestamp offset, and value fields. The router exposes these to
+browsers as one `sample_batch` containing timestamped per-channel sample arrays.
+
 ---
 
 ## Configuration files reference

@@ -141,6 +141,12 @@ function sendOSCToClient(ip, address, ...args) {
   try { oscOutSocket.send(buildOSCMessage(address, ...args), OSC_OUT_PORT, ip); } catch (e) {}
 }
 
+function sendOSCPacketToClients(packet) {
+  for (const ip of oscReceiveClients) {
+    try { oscOutSocket.send(packet, OSC_OUT_PORT, ip); } catch (e) {}
+  }
+}
+
 function broadcastOSC(data) {
   if (oscReceiveClients.size === 0) return;
 
@@ -182,6 +188,74 @@ function broadcastSignalBatch(signals) {
   for (const signal of signals) broadcastOSC(signal);
 }
 
+function broadcastSampleBatch(batch, oscPacket) {
+  const json = JSON.stringify(batch);
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(json);
+  });
+  if (oscReceiveClients.size > 0) sendOSCPacketToClients(oscPacket);
+  try { scSocket.send(oscPacket, 57110, '127.0.0.1'); } catch (e) {}
+}
+
+function decodeElectricSkyBatch(messages, senderIp) {
+  const definitions = {
+    '/sensor/electric-sky/bme_batch': {
+      stride: 5,
+      fields: [
+        ['temperature', 'celsius', 2],
+        ['humidity', 'percent', 3],
+        ['pressure', 'hpa', 4]
+      ]
+    },
+    '/sensor/electric-sky/power_batch': {
+      stride: 3,
+      fields: [['power', 'mw', 2]]
+    },
+    '/sensor/electric-sky/audio_batch': {
+      stride: 3,
+      fields: [['rms', 'dbfs', 2]]
+    }
+  };
+
+  const streams = [];
+  let packetSequence = null;
+  let sendTimeUs = null;
+  for (const msg of messages) {
+    const definition = definitions[msg.address];
+    if (!definition || msg.args.length < 2) continue;
+    const messagePacketSequence = msg.args[0];
+    const messageSendTimeUs = msg.args[1];
+    if (!Number.isFinite(messagePacketSequence) || !Number.isFinite(messageSendTimeUs)) continue;
+    if ((msg.args.length - 2) % definition.stride !== 0) continue;
+    packetSequence ??= messagePacketSequence;
+    sendTimeUs ??= messageSendTimeUs;
+
+    for (const [param, unit, valueOffset] of definition.fields) {
+      const samples = [];
+      for (let i = 2; i < msg.args.length; i += definition.stride) {
+        const sequence = msg.args[i];
+        const timeUs = messageSendTimeUs + msg.args[i + 1];
+        const value = msg.args[i + valueOffset];
+        if (Number.isFinite(sequence) && Number.isFinite(timeUs) && Number.isFinite(value)) {
+          samples.push([sequence, timeUs, value]);
+        }
+      }
+      if (samples.length > 0) {
+        streams.push({
+          device: `osc/electric-sky/${param}`,
+          name: 'electric-sky', param, unit, samples
+        });
+      }
+    }
+  }
+
+  if (streams.length === 0) return null;
+  return {
+    type: 'sample_batch', source: senderIp,
+    packetSequence, sendTimeUs, streams
+  };
+}
+
 // ─── OSC inbound listener ─────────────────────────────────────────────────────
 
 const oscInSocket = dgram.createSocket('udp4');
@@ -189,8 +263,14 @@ const oscInSocket = dgram.createSocket('udp4');
 oscInSocket.on('message', (buf, rinfo) => {
   const rawIp    = rinfo.address.replace(/^::ffff:/, '');
   const senderIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
+  const messages = parseOSCPacket(buf);
+  const electricSkyBatch = decodeElectricSkyBatch(messages, senderIp);
+  if (electricSkyBatch) {
+    broadcastSampleBatch(electricSkyBatch, buf);
+    return;
+  }
 
-  const signals = parseOSCPacket(buf)
+  const signals = messages
     .map(msg => routeOSCMessage(msg, senderIp))
     .filter(Boolean);
 
