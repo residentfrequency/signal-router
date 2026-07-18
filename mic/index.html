@@ -215,15 +215,6 @@
       p.line(0, cy - peakHold * h * 3, p.width, cy - peakHold * h * 3);
       p.line(0, cy + peakHold * h * 3, p.width, cy + peakHold * h * 3);
 
-      // Centroid indicator — vertical line showing spectral center of mass
-      const centroidX = signals.centroid * p.width;
-      p.stroke(40, 80, 90, 40); p.strokeWeight(1);
-      p.line(centroidX, 0, centroidX, p.height);
-      p.noStroke(); p.fill(40, 80, 90, 50);
-      p.textFont('Courier New'); p.textSize(8); p.textAlign(p.LEFT);
-      const centroidHz = Math.pow(10, signals.centroid * (Math.log10(20000) - Math.log10(20)) + Math.log10(20));
-      p.text(Math.round(centroidHz) + 'Hz', centroidX + 4, 20);
-
       const hue = 140 - signals.rms * 300;
       p.stroke(Math.max(0, hue), 60, 90, 85); p.strokeWeight(1.2); p.noFill();
       p.beginShape();
@@ -307,6 +298,12 @@
         spectroBuffer, colW, 0, p.width - colW, p.height,
         0, 0, p.width - colW, p.height
       );
+
+      // Clear the newly exposed column. Without this, old centroid dots at the
+      // right edge are copied into every future frame as permanent lines.
+      spectroBuffer.noStroke();
+      spectroBuffer.fill(0, 0, 0, 100);
+      spectroBuffer.rect(p.width - colW, 0, colW, p.height);
 
       for (let i = 1; i < specArray.length; i++) {
         const freq = (i / specArray.length) * nyquist;
