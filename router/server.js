@@ -242,16 +242,25 @@ function setSampleLatencyMs(value) {
   broadcastSampleBufferStatus();
 }
 
-function resetSampleSource(source, sendTimeUs, nowMs) {
+function sampleBatchTimelineUs(batch) {
+  let timelineUs = 0;
+  for (const stream of batch.streams) {
+    const latest = stream.samples[stream.samples.length - 1];
+    if (latest && latest[1] > timelineUs) timelineUs = latest[1];
+  }
+  return timelineUs || batch.sendTimeUs;
+}
+
+function resetSampleSource(source, timelineUs, nowMs) {
   for (let i = sampleQueue.length - 1; i >= 0; i--) {
     if (sampleQueue[i].source !== source) continue;
     sampleQueuedByKey.delete(sampleQueue[i].key);
     sampleQueue.splice(i, 1);
   }
   const clock = {
-    baseSendTimeUs: sendTimeUs,
+    baseTimelineUs: timelineUs,
     baseReleaseMs: nowMs + sampleLatencyMs,
-    lastSendTimeUs: sendTimeUs
+    lastTimelineUs: timelineUs
   };
   sampleClockBySource.set(source, clock);
   return clock;
@@ -264,6 +273,10 @@ function queueSampleBatch(batch, oscPacket) {
   if (existing) {
     existing.batch.streams.push(...batch.streams);
     existing.oscPackets.push(oscPacket);
+    existing.timelineUs = sampleBatchTimelineUs(existing.batch);
+    existing.releaseAtMs = existing.clock.baseReleaseMs +
+      (existing.timelineUs - existing.clock.baseTimelineUs) / 1000;
+    sampleQueue.sort((a, b) => a.releaseAtMs - b.releaseAtMs);
     return;
   }
 
@@ -272,18 +285,19 @@ function queueSampleBatch(batch, oscPacket) {
   }
   sampleLastSequenceArrivalMs = nowMs;
 
+  const timelineUs = sampleBatchTimelineUs(batch);
   let clock = sampleClockBySource.get(batch.source);
-  if (!clock || batch.sendTimeUs < clock.lastSendTimeUs - 1000000 ||
-      batch.sendTimeUs > clock.lastSendTimeUs + 10000000) {
-    clock = resetSampleSource(batch.source, batch.sendTimeUs, nowMs);
+  if (!clock || timelineUs < clock.lastTimelineUs - 1000000 ||
+      timelineUs > clock.lastTimelineUs + 10000000) {
+    clock = resetSampleSource(batch.source, timelineUs, nowMs);
   }
-  clock.lastSendTimeUs = batch.sendTimeUs;
+  clock.lastTimelineUs = timelineUs;
   const releaseAtMs = clock.baseReleaseMs +
-    (batch.sendTimeUs - clock.baseSendTimeUs) / 1000;
+    (timelineUs - clock.baseTimelineUs) / 1000;
   if (releaseAtMs < nowMs) sampleLateBatches++;
 
   const entry = {
-    key, source: batch.source, releaseAtMs,
+    key, source: batch.source, timelineUs, releaseAtMs, clock,
     batch, oscPackets: [oscPacket]
   };
   sampleQueuedByKey.set(key, entry);
