@@ -33,6 +33,7 @@ const wss    = new WebSocketServer({ server });
 
 app.use(express.static('public'));
 app.use(express.json());
+app.get('/mic.html', (req, res) => res.redirect(308, '/mic/'));
 app.use('/mic',   express.static('../mic'));
 app.use('/moire', express.static('../moire'));
 
@@ -115,12 +116,6 @@ const OSC_OUT_PORT = 9000;
 const OSC_IN_PORT  = 5005;
 
 const oscReceiveClients = new Set();
-const oscSendClients    = new Set();
-
-oscSendClients.add('127.0.0.1');
-oscSendClients.add('::1');
-oscSendClients.add('10.0.0.1');
-oscSendClients.add(os.hostname());
 
 const oscOutSocket = dgram.createSocket('udp4');
 
@@ -169,14 +164,7 @@ oscInSocket.on('message', (buf, rinfo) => {
   const rawIp    = rinfo.address.replace(/^::ffff:/, '');
   const senderIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
 
-  if (!oscSendClients.has(rawIp) && !oscSendClients.has(senderIp)) {
-    console.log(`OSC from unregistered IP ${rawIp} — ignored. Toggle SEND ON to allow.`);
-    return;
-  }
-
   const msg = parseOSCMessage(buf);
-  console.log('OSC raw args:', msg?.args, 'buffer length:', buf.length);
-  if (msg) console.log('OSC received:', msg.address, msg.args);
   if (!msg) return;
 
   const parts = msg.address.split('/').filter(Boolean);
@@ -281,7 +269,6 @@ wss.on('connection', (ws, req) => {
     oscOutPort:      OSC_OUT_PORT,
     oscInPort:       OSC_IN_PORT,
     oscReceive:      oscReceiveClients.has(clientIp),
-    oscSend:         oscSendClients.has(clientIp),
     isServerMachine: rawIp === '127.0.0.1' || rawIp === '::1' ||
       Object.values(os.networkInterfaces()).flat().some(i => i?.address === rawIp)
   }));
@@ -293,16 +280,6 @@ wss.on('connection', (ws, req) => {
 
       if (data.type === 'osc_toggle_receive') {
         data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
-        broadcastClientStats();
-        return;
-      }
-
-      if (data.type === 'osc_toggle_send') {
-        if (data.enabled) {
-          oscSendClients.add(clientIp);
-        } else if (clientIp !== '127.0.0.1' && clientIp !== '10.0.0.1') {
-          oscSendClients.delete(clientIp);
-        }
         broadcastClientStats();
         return;
       }
@@ -359,7 +336,6 @@ function broadcastClientStats() {
     ip,
     tabCount:   connectionsByIp.get(ip).size,
     oscReceive: oscReceiveClients.has(ip),
-    oscSend:    oscSendClients.has(ip),
     ...( clientMeta.get(ip) || {} )
   }));
 
@@ -410,7 +386,7 @@ app.get('/api/status', (req, res) => res.json({ ok: true, hostname: os.hostname(
 const PORT = 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Router running on port ${PORT}`);
-  console.log(`OSC inbound on port ${OSC_IN_PORT} (whitelisted IPs only)`);
+  console.log(`OSC inbound on port ${OSC_IN_PORT} (all reachable senders)`);
   console.log(`OSC outbound on port ${OSC_OUT_PORT} (registered receive clients)`);
 });
 

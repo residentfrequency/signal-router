@@ -602,7 +602,7 @@ OSC address format mirrors the device field:
 
 osc and json messages carry raw value + normalized 0–1. midi CC messages carry normalized 0–1 + raw 0–127.
 
-To send OSC to the router, send UDP to port 5005 (local network only — not available via Cloudflare tunnel, use Tailscale for remote OSC). Toggle SEND ON in the OSC ports table to register your IP as an allowed sender.
+To send OSC to the router, send UDP to port 5005 (local network only — not available via Cloudflare tunnel, use Tailscale for remote OSC). OSC input is always enabled; opening the dashboard or registering the sender first is not required.
 
 OSC address format for inbound — pass value, min, max as arguments:
 ```
@@ -684,7 +684,7 @@ ps aux | grep node
 VS Code Remote SSH is the most common cause — kill it with `pkill -9 -f vscode-server`.
 
 **Distance sensor showing dashes in router**
-OSC packets from `sensors/distance/main.py` use subnet broadcast which doesn't loop back on Linux. Check `main.py` sends to both broadcast and `127.0.0.1`. Verify OSC inbound whitelist in server.js includes broadcast addresses.
+OSC packets from `sensors/distance/main.py` use subnet broadcast which doesn't loop back on Linux. Check `main.py` sends to both broadcast and `127.0.0.1`, and confirm the router is listening on UDP port 5005.
 
 **`wifi-mode` reports success but SSID unchanged**
 Network not in scan range. Run `sudo nmcli dev wifi rescan` then retry. Check signal strength with `sudo nmcli dev wifi list`.

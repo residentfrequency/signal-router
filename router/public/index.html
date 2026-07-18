@@ -134,13 +134,13 @@ hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
   </div>
 </div>
 
-<h2>LOCAL OSC PORTS</h2>
+<h2>OSC UDP</h2>
 <table id="osc-ports-table">
   <tr>
-    <th style="width:40%">PORT</th>
-    <th style="width:15%">RECEIVE</th>
-    <th style="width:15%">SEND</th>
-    <th style="width:30%">STATUS</th>
+    <th style="width:25%">DIRECTION</th>
+    <th style="width:25%">ENDPOINT</th>
+    <th style="width:20%">ENABLED</th>
+    <th style="width:30%">PURPOSE</th>
   </tr>
 </table>
 
@@ -302,7 +302,6 @@ function saveOSCPortState() {
 }
 
 function isOSCReceiving(port) { return oscPortState[port]?.receive === true; }
-function isOSCSending(port)   { return oscPortState[port]?.send   === true; }
 
 function setOSCReceive(port, val) {
   if (!oscPortState[port]) oscPortState[port] = {};
@@ -313,44 +312,35 @@ function setOSCReceive(port, val) {
   updateOSCStatus();
 }
 
-function setOSCSend(port, val) {
-  if (!oscPortState[port]) oscPortState[port] = {};
-  oscPortState[port].send = val;
-  saveOSCPortState();
-  if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_send', enabled: val }));
-  renderOSCPorts();
-  updateOSCStatus();
-}
-
 function toggleOSCReceive(port) { setOSCReceive(port, !isOSCReceiving(port)); }
-function toggleOSCSend(port)    { setOSCSend(port,    !isOSCSending(port)); }
 
 function renderOSCPorts() {
   const table = document.getElementById('osc-ports-table');
   while (table.rows.length > 1) table.deleteRow(1);
 
   const recv = isOSCReceiving(9000);
-  const send = isOSCSending(9000);
-  const row  = table.insertRow();
-  row.innerHTML = `
-    <td>:9000</td>
+  const inputRow = table.insertRow();
+  inputRow.innerHTML = `
+    <td>into router</td>
+    <td>adrian-pi:5005</td>
+    <td><span class="neutral">ALWAYS ON</span></td>
+    <td class="dim">OSC senders → router</td>
+  `;
+
+  const outputRow = table.insertRow();
+  outputRow.innerHTML = `
+    <td>out to this machine</td>
+    <td>${MY_IP || 'this client'}:9000</td>
     <td><button class="btn ${recv ? 'on' : 'off'}"
         onclick="toggleOSCReceive(9000)">${recv ? 'ON' : 'OFF'}</button></td>
-    <td><button class="btn ${send ? 'on' : 'off'}"
-        onclick="toggleOSCSend(9000)">${send ? 'ON' : 'OFF'}</button></td>
-    <td class="dim">${recv && send ? 'recv :9000 · send → :5005' :
-                     recv          ? 'receiving from router :9000' :
-                     send          ? 'sending → 10.0.0.1:5005' : ''}</td>
+    <td class="dim">${recv ? 'router → local OSC listener' : 'optional forwarding off'}</td>
   `;
 }
 
 function updateOSCStatus() {
   const recv = isOSCReceiving(9000);
-  const send = isOSCSending(9000);
   document.getElementById('osc-status').textContent =
-    recv && send ? 'OSC :9000 recv+send' :
-    recv         ? 'OSC :9000 recv' :
-    send         ? 'OSC :5005 send' : 'OSC off';
+    recv ? 'OSC in :5005 · out :9000' : 'OSC in :5005';
 }
 
 renderOSCPorts();
@@ -569,27 +559,39 @@ function ensureRow(data) {
   const table  = ensureSection(source);
   const assign = getAssignment(key);
 
+  const defaultChannel = assign.channel ?? (data.type === 'midi' ? data.channel : '');
+  const defaultCc      = assign.cc      ?? (data.type === 'midi' ? data.cc      : '');
+
+  const defaultMin = assign.min ?? (data.type === 'midi' ? 0   : data.min ?? 0);
+  const defaultMax = assign.max ?? (data.type === 'midi' ? 127 : data.max ?? 1);
+
   const row  = table.insertRow();
+
   row.id     = rowId;
   row.innerHTML = `
     <td class="dim" style="overflow:hidden;text-overflow:ellipsis" title="${key}">${key}</td>
     <td class="val" id="raw-${safeKey}">--</td>
     <td class="val" id="midi-${safeKey}">--</td>
     <td><input type="number" min="1" max="16"
-         value="${assign.channel ?? ''}" placeholder="—"
+         value="${defaultChannel}" placeholder="—"
          onchange="setAssignment('${key}', 'channel', +this.value); applyMidiOut('${key}')"></td>
     <td><input type="number" min="0" max="127"
-         value="${assign.cc ?? ''}" placeholder="—"
+         value="${defaultCc}" placeholder="—"
          onchange="setAssignment('${key}', 'cc', +this.value); applyMidiOut('${key}')"></td>
     <td><input type="number" min="0" max="9999"
-         value="${assign.min ?? data.min ?? 0}" placeholder="—" 
+         value="${defaultMin}" placeholder="—"
          onchange="setAssignment('${key}', 'min', +this.value)"></td>
     <td><input type="number" min="0" max="9999"
-         value="${assign.max ?? data.max ?? 1}" placeholder="—" 
+         value="${defaultMax}" placeholder="—"
          onchange="setAssignment('${key}', 'max', +this.value)"></td>
     <td><button class="btn on" id="out-${safeKey}"
          onclick="toggleOut('${key}', '${safeKey}')">ON</button></td>
   `;
+
+  if (data.type === 'midi' && data.msgType === 'cc') {
+    if (!assign.channel) setAssignment(key, 'channel', data.channel);
+    if (assign.cc == null) setAssignment(key, 'cc', data.cc);
+  }
 
   return rowId;
 }
@@ -631,15 +633,27 @@ function updateRow(data) {
 
   if (data.type === 'midi') {
     if (rawEl) {
-      if      (data.msgType === 'cc')       rawEl.textContent = (data.value / 127).toFixed(4);
-      else if (data.msgType === 'noteon')   rawEl.textContent = `v${data.velocity}`;
-      else if (data.msgType === 'noteoff')  rawEl.textContent = 'off';
+      if      (data.msgType === 'cc')        rawEl.textContent = (data.value / 127).toFixed(4);
+      else if (data.msgType === 'noteon')    rawEl.textContent = `v${data.velocity}`;
+      else if (data.msgType === 'noteoff')   rawEl.textContent = 'off';
       else if (data.msgType === 'pitchbend') rawEl.textContent = data.value;
     }
-    if (midiEl) {
-      if (data.msgType === 'cc') midiEl.textContent = data.value;
+  }
+
+  if (data.type === 'midi' && data.msgType === 'cc') {
+    const assign  = getAssignment(key);
+    const min     = assign.min ?? 0;
+    const max     = assign.max ?? 127;
+    const norm    = Math.max(0, Math.min(1, (data.value - min) / (max - min)));
+    const midiOut = Math.round(norm * 127);
+    if (midiEl) midiEl.textContent = midiOut;
+    if (isOutEnabled(key) && assign.channel && assign.cc != null) {
+      if (!(key in smoothed)) smoothed[key] = norm;
+      smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
+      sendCC(assign.channel, assign.cc, smoothed[key] * 127);
     }
   }
+
 }
 
 function applyMidiOut(key) {
