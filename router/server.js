@@ -188,14 +188,119 @@ function broadcastSignalBatch(signals) {
   for (const signal of signals) broadcastOSC(signal);
 }
 
-function broadcastSampleBatch(batch, oscPacket) {
+function broadcastSampleBatch(batch, oscPackets) {
   const json = JSON.stringify(batch);
   wss.clients.forEach(client => {
     if (client.readyState === 1) client.send(json);
   });
-  if (oscReceiveClients.size > 0) sendOSCPacketToClients(oscPacket);
-  try { scSocket.send(oscPacket, 57110, '127.0.0.1'); } catch (e) {}
+  for (const packet of oscPackets) {
+    if (oscReceiveClients.size > 0) sendOSCPacketToClients(packet);
+    try { scSocket.send(packet, 57110, '127.0.0.1'); } catch (e) {}
+  }
 }
+
+// ─── Timestamped presentation buffer ─────────────────────────────────────────
+
+let sampleLatencyMs = 1000;
+let sampleLateBatches = 0;
+let sampleMaxArrivalGapMs = 0;
+let sampleLastSequenceArrivalMs = null;
+const sampleQueue = [];
+const sampleQueuedByKey = new Map();
+const sampleClockBySource = new Map();
+
+function sampleRecommendedLatencyMs() {
+  return Math.max(250, Math.ceil((sampleMaxArrivalGapMs + 100) / 250) * 250);
+}
+
+function sampleBufferStatus() {
+  return {
+    type: 'sample_buffer_status',
+    latencyMs: sampleLatencyMs,
+    queuedSequences: sampleQueue.length,
+    lateBatches: sampleLateBatches,
+    maxArrivalGapMs: Math.round(sampleMaxArrivalGapMs),
+    recommendedLatencyMs: sampleRecommendedLatencyMs()
+  };
+}
+
+function broadcastSampleBufferStatus() {
+  const json = JSON.stringify(sampleBufferStatus());
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(json);
+  });
+}
+
+function setSampleLatencyMs(value) {
+  const next = Math.max(0, Math.min(6000, Math.round(Number(value) / 250) * 250));
+  if (!Number.isFinite(next) || next === sampleLatencyMs) return;
+  const delta = next - sampleLatencyMs;
+  sampleLatencyMs = next;
+  for (const entry of sampleQueue) entry.releaseAtMs += delta;
+  for (const clock of sampleClockBySource.values()) clock.baseReleaseMs += delta;
+  sampleQueue.sort((a, b) => a.releaseAtMs - b.releaseAtMs);
+  broadcastSampleBufferStatus();
+}
+
+function resetSampleSource(source, sendTimeUs, nowMs) {
+  for (let i = sampleQueue.length - 1; i >= 0; i--) {
+    if (sampleQueue[i].source !== source) continue;
+    sampleQueuedByKey.delete(sampleQueue[i].key);
+    sampleQueue.splice(i, 1);
+  }
+  const clock = {
+    baseSendTimeUs: sendTimeUs,
+    baseReleaseMs: nowMs + sampleLatencyMs,
+    lastSendTimeUs: sendTimeUs
+  };
+  sampleClockBySource.set(source, clock);
+  return clock;
+}
+
+function queueSampleBatch(batch, oscPacket) {
+  const nowMs = Date.now();
+  const key = `${batch.source}:${batch.packetSequence}`;
+  const existing = sampleQueuedByKey.get(key);
+  if (existing) {
+    existing.batch.streams.push(...batch.streams);
+    existing.oscPackets.push(oscPacket);
+    return;
+  }
+
+  if (sampleLastSequenceArrivalMs !== null) {
+    sampleMaxArrivalGapMs = Math.max(sampleMaxArrivalGapMs, nowMs - sampleLastSequenceArrivalMs);
+  }
+  sampleLastSequenceArrivalMs = nowMs;
+
+  let clock = sampleClockBySource.get(batch.source);
+  if (!clock || batch.sendTimeUs < clock.lastSendTimeUs - 1000000 ||
+      batch.sendTimeUs > clock.lastSendTimeUs + 10000000) {
+    clock = resetSampleSource(batch.source, batch.sendTimeUs, nowMs);
+  }
+  clock.lastSendTimeUs = batch.sendTimeUs;
+  const releaseAtMs = clock.baseReleaseMs +
+    (batch.sendTimeUs - clock.baseSendTimeUs) / 1000;
+  if (releaseAtMs < nowMs) sampleLateBatches++;
+
+  const entry = {
+    key, source: batch.source, releaseAtMs,
+    batch, oscPackets: [oscPacket]
+  };
+  sampleQueuedByKey.set(key, entry);
+  sampleQueue.push(entry);
+  sampleQueue.sort((a, b) => a.releaseAtMs - b.releaseAtMs);
+}
+
+setInterval(() => {
+  const nowMs = Date.now();
+  while (sampleQueue.length > 0 && sampleQueue[0].releaseAtMs <= nowMs) {
+    const entry = sampleQueue.shift();
+    sampleQueuedByKey.delete(entry.key);
+    broadcastSampleBatch(entry.batch, entry.oscPackets);
+  }
+}, 5);
+
+setInterval(broadcastSampleBufferStatus, 1000);
 
 function decodeElectricSkyBatch(messages, senderIp) {
   const definitions = {
@@ -266,7 +371,7 @@ oscInSocket.on('message', (buf, rinfo) => {
   const messages = parseOSCPacket(buf);
   const electricSkyBatch = decodeElectricSkyBatch(messages, senderIp);
   if (electricSkyBatch) {
-    broadcastSampleBatch(electricSkyBatch, buf);
+    queueSampleBatch(electricSkyBatch, buf);
     return;
   }
 
@@ -376,6 +481,7 @@ wss.on('connection', (ws, req) => {
     networkSsid: net.ssid
   }));
   ws.send(JSON.stringify({ type: 'state', state }));
+  ws.send(JSON.stringify(sampleBufferStatus()));
   ws.send(JSON.stringify({
     type: 'client_info',
     ip: clientIp,
@@ -395,6 +501,11 @@ wss.on('connection', (ws, req) => {
       if (data.type === 'osc_toggle_receive') {
         data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
         broadcastClientStats();
+        return;
+      }
+
+      if (data.type === 'set_sample_latency') {
+        setSampleLatencyMs(data.latencyMs);
         return;
       }
 

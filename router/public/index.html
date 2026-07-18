@@ -71,6 +71,7 @@ input[type=number] {
 }
 input[type=number]:focus  { border-color: #00ff88; outline: none; }
 input[type=number]:disabled { opacity: 0.2; }
+input[type=range] { width: min(28em, 55vw); accent-color: #00ff88; vertical-align: middle; }
 .btn {
   background: #0a0a0a;
   color: #00ff88;
@@ -143,6 +144,16 @@ hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
     <th style="width:30%">PURPOSE</th>
   </tr>
 </table>
+<div class="info-box" style="font-size:0.75em">
+  <div class="info-label">GLOBAL SENSOR PRESENTATION LATENCY</div>
+  <div>
+    <input id="sample-latency" type="range" min="0" max="6000" step="250" value="1000"
+      onchange="setPresentationLatency(+this.value)">
+    <span class="info-value" id="sample-latency-value">1.00 s</span>
+    <button class="btn" id="sample-latency-recommended" onclick="useRecommendedLatency()">USE RECOMMENDED</button>
+  </div>
+  <div class="dim" id="sample-buffer-detail">waiting for sensor data…</div>
+</div>
 
 <h2>LOCAL MIDI PORTS</h2>
 <table id="midi-ports-table">
@@ -686,6 +697,16 @@ function handleIncomingSignal(data) {
 
 const ws = new WebSocket(`wss://${location.host}`);
 
+let recommendedSampleLatencyMs = 1000;
+function setPresentationLatency(latencyMs) {
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({ type: 'set_sample_latency', latencyMs }));
+  }
+}
+function useRecommendedLatency() {
+  setPresentationLatency(recommendedSampleLatencyMs);
+}
+
 ws.onopen  = () => setStatus('ws-status', 'connected', true);
 ws.onclose = () => setStatus('ws-status', 'disconnected', false);
 ws.onerror = () => setStatus('ws-status', 'error', false);
@@ -757,6 +778,18 @@ ws.onmessage = event => {
         source: data.source, enabled: true
       });
     });
+  }
+
+  if (data.type === 'sample_buffer_status') {
+    recommendedSampleLatencyMs = data.recommendedLatencyMs;
+    document.getElementById('sample-latency').value = data.latencyMs;
+    document.getElementById('sample-latency-value').textContent =
+      `${(data.latencyMs / 1000).toFixed(2)} s`;
+    document.getElementById('sample-latency-recommended').textContent =
+      `USE RECOMMENDED ${(data.recommendedLatencyMs / 1000).toFixed(2)} s`;
+    document.getElementById('sample-buffer-detail').textContent =
+      `queued ${data.queuedSequences} sequences · late ${data.lateBatches} · ` +
+      `maximum arrival gap ${(data.maxArrivalGapMs / 1000).toFixed(3)} s`;
   }
 };
 
