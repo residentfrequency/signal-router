@@ -202,6 +202,7 @@ function broadcastSampleBatch(batch, oscPackets) {
 // ─── Timestamped presentation buffer ─────────────────────────────────────────
 
 let sampleLatencyMs = 1000;
+const ELECTRIC_SKY_PACKET_INTERVAL_MS = 63;
 let sampleLateBatches = 0;
 let sampleMaxArrivalGapMs = 0;
 let sampleLastSequenceArrivalMs = null;
@@ -242,25 +243,16 @@ function setSampleLatencyMs(value) {
   broadcastSampleBufferStatus();
 }
 
-function sampleBatchTimelineUs(batch) {
-  let timelineUs = 0;
-  for (const stream of batch.streams) {
-    const latest = stream.samples[stream.samples.length - 1];
-    if (latest && latest[1] > timelineUs) timelineUs = latest[1];
-  }
-  return timelineUs || batch.sendTimeUs;
-}
-
-function resetSampleSource(source, timelineUs, nowMs) {
+function resetSampleSource(source, packetSequence, nowMs) {
   for (let i = sampleQueue.length - 1; i >= 0; i--) {
     if (sampleQueue[i].source !== source) continue;
     sampleQueuedByKey.delete(sampleQueue[i].key);
     sampleQueue.splice(i, 1);
   }
   const clock = {
-    baseTimelineUs: timelineUs,
+    basePacketSequence: packetSequence,
     baseReleaseMs: nowMs + sampleLatencyMs,
-    lastTimelineUs: timelineUs
+    lastPacketSequence: packetSequence
   };
   sampleClockBySource.set(source, clock);
   return clock;
@@ -273,10 +265,6 @@ function queueSampleBatch(batch, oscPacket) {
   if (existing) {
     existing.batch.streams.push(...batch.streams);
     existing.oscPackets.push(oscPacket);
-    existing.timelineUs = sampleBatchTimelineUs(existing.batch);
-    existing.releaseAtMs = existing.clock.baseReleaseMs +
-      (existing.timelineUs - existing.clock.baseTimelineUs) / 1000;
-    sampleQueue.sort((a, b) => a.releaseAtMs - b.releaseAtMs);
     return;
   }
 
@@ -285,19 +273,20 @@ function queueSampleBatch(batch, oscPacket) {
   }
   sampleLastSequenceArrivalMs = nowMs;
 
-  const timelineUs = sampleBatchTimelineUs(batch);
+  const packetSequence = batch.packetSequence >>> 0;
   let clock = sampleClockBySource.get(batch.source);
-  if (!clock || timelineUs < clock.lastTimelineUs - 1000000 ||
-      timelineUs > clock.lastTimelineUs + 10000000) {
-    clock = resetSampleSource(batch.source, timelineUs, nowMs);
+  const sequenceStep = clock ? (packetSequence - clock.lastPacketSequence) >>> 0 : 0;
+  if (!clock || sequenceStep > 100000) {
+    clock = resetSampleSource(batch.source, packetSequence, nowMs);
   }
-  clock.lastTimelineUs = timelineUs;
+  clock.lastPacketSequence = packetSequence;
+  const sequenceOffset = (packetSequence - clock.basePacketSequence) >>> 0;
   const releaseAtMs = clock.baseReleaseMs +
-    (timelineUs - clock.baseTimelineUs) / 1000;
+    sequenceOffset * ELECTRIC_SKY_PACKET_INTERVAL_MS;
   if (releaseAtMs < nowMs) sampleLateBatches++;
 
   const entry = {
-    key, source: batch.source, timelineUs, releaseAtMs, clock,
+    key, source: batch.source, releaseAtMs, clock,
     batch, oscPackets: [oscPacket]
   };
   sampleQueuedByKey.set(key, entry);
