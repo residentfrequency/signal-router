@@ -247,6 +247,7 @@ function setAssignment(key, field, value) {
 let midiAccess = null;
 let smoothed   = {};
 let MY_IP      = null;
+const midiOutputOpening = new WeakMap();
 
 const portState = loadPortState();
 
@@ -355,8 +356,13 @@ if (navigator.requestMIDIAccess) {
     midiAccess = midi;
     renderMidiPorts();
     restoreInputListeners();
+    openReceivingMidiOutputs();
     setStatus('midi-status', 'WebMIDI ready');
-    midi.onstatechange = () => { renderMidiPorts(); restoreInputListeners(); };
+    midi.onstatechange = () => {
+      renderMidiPorts();
+      restoreInputListeners();
+      openReceivingMidiOutputs();
+    };
   }).catch(() => {
     setStatus('midi-status', 'WebMIDI denied');
     document.getElementById('setup-help').open = true;
@@ -429,6 +435,11 @@ function toggleReceive(portName) {
       if (input.name === portName) input.onmidimessage = null;
     }
   }
+  if (newRecv) {
+    for (const output of midiAccess.outputs.values()) {
+      if (output.name === portName) openMidiOutput(output);
+    }
+  }
   renderMidiPorts();
 }
 
@@ -452,10 +463,34 @@ function toggleSend(portName) {
 // MIDI OUTPUT — send to all receiving ports
 // ═══════════════════════════════════════════════════
 
+function openMidiOutput(output) {
+  if (output.connection === 'open') return Promise.resolve(output);
+  if (midiOutputOpening.has(output)) return midiOutputOpening.get(output);
+
+  const opening = output.open()
+    .then(() => output)
+    .catch(error => {
+      console.error(`Could not open MIDI output ${output.name}`, error);
+      throw error;
+    })
+    .finally(() => midiOutputOpening.delete(output));
+  midiOutputOpening.set(output, opening);
+  return opening;
+}
+
+function openReceivingMidiOutputs() {
+  if (!midiAccess) return;
+  for (const output of midiAccess.outputs.values()) {
+    if (isReceiving(output.name)) openMidiOutput(output).catch(() => {});
+  }
+}
+
 function sendMidi(bytes) {
   if (!midiAccess) return;
   for (let [id, output] of midiAccess.outputs) {
-    if (isReceiving(output.name)) output.send(bytes);
+    if (!isReceiving(output.name)) continue;
+    if (output.connection === 'open') output.send(bytes);
+    else openMidiOutput(output).then(() => output.send(bytes)).catch(() => {});
   }
 }
 
