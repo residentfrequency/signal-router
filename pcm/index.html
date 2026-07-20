@@ -2,12 +2,12 @@
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>RF · PCM stream</title><style>
 *{box-sizing:border-box}body{margin:0;background:#050608;color:#dce6ee;font:12px monospace}header{padding:12px 16px;border-bottom:1px solid #26313a;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}h1{margin:0;color:#adf;font-size:15px;letter-spacing:.1em}.controls{display:flex;align-items:center;gap:7px;flex-wrap:wrap}button,input{accent-color:#9cf}button{background:#17212a;color:#adf;border:1px solid #33424e;padding:5px 8px;font:11px monospace}.active{background:#adf;color:#071018}canvas{display:block;width:100vw;height:calc(100vh - 104px)}footer{height:48px;padding:9px 16px;border-top:1px solid #26313a;color:#71818d;display:flex;gap:20px;flex-wrap:wrap}footer span{color:#dce6ee}</style></head>
-<body><header><h1>REMOTE PCM · <span id="deviceLabel"></span></h1><div class="controls"><button id="start">start audio</button><button class="view active" data-view="wave">waveform</button><button class="view" data-view="spectrum">spectrum</button><button class="view" data-view="spectrogram">spectrogram</button><button id="frequencyScale">frequency: expanded</button><label>gain <input id="level" type="range" min="1" max="64" step="1" value="16"><span id="levelValue">16×</span></label><label>FFT <input id="fftPower" type="range" min="11" max="14" step="1" value="13"><span id="fftValue">8192</span></label><label><input id="interpolate" type="checkbox" checked> smooth</label></div></header><canvas id="canvas"></canvas><footer><div>WS <span id="connection">connecting</span></div><div>packets <span id="packets">0</span></div><div>missing <span id="missing">0</span></div><div>arrival max <span id="arrival">0ms</span></div><div>buffer <span id="buffer">0ms</span></div><div>rate <span id="rate">—</span></div></footer>
+<body><header><h1>REMOTE PCM · <span id="deviceLabel"></span></h1><div class="controls"><button id="start">start audio</button><button class="view active" data-view="wave">waveform</button><button class="view" data-view="spectrum">spectrum</button><button class="view" data-view="spectrogram">spectrogram</button><button id="frequencyScale">frequency: expanded</button><label>gain <input id="level" type="range" min="1" max="64" step="1" value="16"><span id="levelValue">16×</span></label><label>FFT <input id="fftPower" type="range" min="11" max="14" step="1" value="13"><span id="fftValue">8192</span></label><label><input id="interpolate" type="checkbox" checked> smooth</label><label><input id="centroidEnabled" type="checkbox"> centroid</label></div></header><canvas id="canvas"></canvas><footer><div>WS <span id="connection">connecting</span></div><div>packets <span id="packets">0</span></div><div>missing <span id="missing">0</span></div><div>arrival max <span id="arrival">0ms</span></div><div>buffer <span id="buffer">0ms</span></div><div>rate <span id="rate">—</span></div><div>centroid <span id="centroidValue">—</span></div></footer>
 <script>
 const params=new URLSearchParams(location.search),device=params.get('device')||'pcm/192.168.0.44/audio';deviceLabel.textContent=device;
 let audioCtx=null,analyser=null,gain=null,nextStart=0,packetCount=0,missingCount=0,lastSequence=null,lastArrival=0,maxArrival=0,sampleRate=16000,view='wave',frequencyMode='expanded';
 const PRESENTATION_LATENCY_MS=200;
-const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),spectrogramCanvas=document.createElement('canvas'),spectrogramCtx=spectrogramCanvas.getContext('2d'),level=document.getElementById('level'),fftPower=document.getElementById('fftPower'),interpolate=document.getElementById('interpolate');
+const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),spectrogramCanvas=document.createElement('canvas'),spectrogramCtx=spectrogramCanvas.getContext('2d'),level=document.getElementById('level'),fftPower=document.getElementById('fftPower'),interpolate=document.getElementById('interpolate'),centroidEnabled=document.getElementById('centroidEnabled'),centroidValue=document.getElementById('centroidValue');
 level.oninput=()=>{levelValue.textContent=level.value+'×';if(gain)gain.gain.value=Number(level.value)};
 fftPower.oninput=()=>{const size=2**Number(fftPower.value);fftValue.textContent=size;if(analyser)analyser.fftSize=size};
 frequencyScale.onclick=()=>{const modes=['expanded','log','linear'];frequencyMode=modes[(modes.indexOf(frequencyMode)+1)%modes.length];frequencyScale.textContent='frequency: '+frequencyMode};
@@ -22,5 +22,31 @@ function resize(){const d=devicePixelRatio||1,w=Math.floor(innerWidth*d),h=Math.
 function frequencyBounds(length){const maximum=length-1,minimum=Math.min(maximum,Math.max(1,Math.ceil(20*analyser.fftSize/sampleRate)));return{minimum,maximum}}
 function frequencyPosition(index,minimum,maximum){const normalized=(index-minimum)/(maximum-minimum);if(frequencyMode==='expanded')return Math.sqrt(normalized);if(frequencyMode==='log')return Math.log(index/minimum)/Math.log(maximum/minimum);return normalized}
 function frequencyIndex(normalized,minimum,maximum){if(frequencyMode==='expanded')return minimum+normalized*normalized*(maximum-minimum);if(frequencyMode==='log')return minimum*Math.pow(maximum/minimum,normalized);return minimum+normalized*(maximum-minimum)}
-function render(){resize();const w=canvas.width,h=canvas.height;if(!analyser){ctx.fillStyle='#050608';ctx.fillRect(0,0,w,h);requestAnimationFrame(render);return}if(view==='wave'){const a=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(a);ctx.fillStyle='#050608';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#8df';ctx.beginPath();for(let i=0;i<a.length;i++){const x=i/(a.length-1)*w,y=h/2-a[i]*h*.45;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.stroke()}else if(view==='spectrum'){const a=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(a);const{minimum,maximum}=frequencyBounds(a.length);ctx.fillStyle='#050608';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#fc8';ctx.beginPath();for(let i=minimum;i<=maximum;i++){const x=frequencyPosition(i,minimum,maximum)*w,y=h-a[i]/255*h;i===minimum?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke()}else{const a=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(a);const{minimum,maximum}=frequencyBounds(a.length);spectrogramCtx.drawImage(spectrogramCanvas,-1,0);for(let y=0;y<h;y++){const normalized=1-y/h,position=frequencyIndex(normalized,minimum,maximum),lower=Math.floor(position),fraction=position-lower;const value=interpolate.checked&&lower<maximum?a[lower]*(1-fraction)+a[lower+1]*fraction:a[lower];spectrogramCtx.fillStyle=`hsl(${240-value*.8} 90% ${value*.28}%)`;spectrogramCtx.fillRect(w-1,y,1,1)}ctx.clearRect(0,0,w,h);ctx.drawImage(spectrogramCanvas,0,0)}buffer.textContent=audioCtx?Math.max(0,(nextStart-audioCtx.currentTime)*1000).toFixed(0)+'ms':'0ms';requestAnimationFrame(render)}render();
+function spectralCentroid(a,minimum,maximum){let weighted=0,total=0;for(let i=minimum;i<=maximum;i++){weighted+=i*a[i];total+=a[i]}return total?weighted/total:minimum}
+function render(){
+  resize();
+  const w=canvas.width,h=canvas.height;
+  if(!analyser){ctx.fillStyle='#050608';ctx.fillRect(0,0,w,h);requestAnimationFrame(render);return}
+  if(view==='wave'){
+    centroidValue.textContent='—';
+    const a=new Float32Array(analyser.fftSize);analyser.getFloatTimeDomainData(a);
+    ctx.fillStyle='#050608';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#8df';ctx.beginPath();
+    for(let i=0;i<a.length;i++){const x=i/(a.length-1)*w,y=h/2-a[i]*h*.45;i?ctx.lineTo(x,y):ctx.moveTo(x,y)}ctx.stroke();
+  }else{
+    const a=new Uint8Array(analyser.frequencyBinCount);analyser.getByteFrequencyData(a);
+    const{minimum,maximum}=frequencyBounds(a.length),centroid=spectralCentroid(a,minimum,maximum),centroidHz=centroid*sampleRate/analyser.fftSize;
+    centroidValue.textContent=centroidEnabled.checked?centroidHz.toFixed(0)+' Hz':'—';
+    if(view==='spectrum'){
+      ctx.fillStyle='#050608';ctx.fillRect(0,0,w,h);ctx.strokeStyle='#fc8';ctx.beginPath();
+      for(let i=minimum;i<=maximum;i++){const x=frequencyPosition(i,minimum,maximum)*w,y=h-a[i]/255*h;i===minimum?ctx.moveTo(x,y):ctx.lineTo(x,y)}ctx.stroke();
+      if(centroidEnabled.checked){const x=frequencyPosition(centroid,minimum,maximum)*w;ctx.strokeStyle='#ffd84a';ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke()}
+    }else{
+      spectrogramCtx.drawImage(spectrogramCanvas,-1,0);
+      for(let y=0;y<h;y++){const normalized=1-y/h,position=frequencyIndex(normalized,minimum,maximum),lower=Math.floor(position),fraction=position-lower;const value=interpolate.checked&&lower<maximum?a[lower]*(1-fraction)+a[lower+1]*fraction:a[lower];spectrogramCtx.fillStyle=`hsl(${240-value*.8} 90% ${value*.28}%)`;spectrogramCtx.fillRect(w-1,y,1,1)}
+      if(centroidEnabled.checked){const y=(1-frequencyPosition(centroid,minimum,maximum))*h;spectrogramCtx.fillStyle='#ffd84a';spectrogramCtx.beginPath();spectrogramCtx.arc(w-2,y,Math.max(2,(devicePixelRatio||1)*1.5),0,Math.PI*2);spectrogramCtx.fill()}
+      ctx.clearRect(0,0,w,h);ctx.drawImage(spectrogramCanvas,0,0);
+    }
+  }
+  buffer.textContent=audioCtx?Math.max(0,(nextStart-audioCtx.currentTime)*1000).toFixed(0)+'ms':'0ms';requestAnimationFrame(render)
+}render();
 </script></body></html>
