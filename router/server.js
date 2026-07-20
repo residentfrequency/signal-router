@@ -38,6 +38,7 @@ app.get('/visualizer.html', (req, res) => res.redirect(308, `/visualizer/?${req.
 app.use('/mic',   express.static('../mic'));
 app.use('/moire', express.static('../moire'));
 app.use('/visualizer', express.static('../visualizer'));
+app.use('/pcm', express.static('../pcm'));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
@@ -134,6 +135,7 @@ function sendToSC(address, ...args) {
 
 const OSC_OUT_PORT = 9000;
 const OSC_IN_PORT  = 5005;
+const PCM_IN_PORT  = 5007;
 
 const oscReceiveClients = new Set();
 
@@ -336,6 +338,53 @@ midiSocket.bind(5006, '127.0.0.1', () => {
   console.log('MIDI UDP listening on port 5006');
 });
 
+// ─── Raw PCM UDP receiver — subscription-only WebSocket forwarding ──────────
+
+const pcmSocket = dgram.createSocket('udp4');
+const pcmStreams = new Map();
+const PCM_MAX_WS_BACKLOG = 256 * 1024;
+
+function pcmDeviceFor(ip) {
+  return `pcm/${ip}/audio`;
+}
+
+pcmSocket.on('message', (packet, rinfo) => {
+  if (packet.length < 32 || packet.toString('ascii', 0, 4) !== 'ESAU') return;
+  const version = packet.readUInt8(4);
+  const channels = packet.readUInt8(5);
+  const bitsPerSample = packet.readUInt8(6);
+  const sequence = packet.readUInt32LE(8);
+  const sampleRate = packet.readUInt32LE(20);
+  const sampleCount = packet.readUInt16LE(24);
+  const headerBytes = packet.readUInt16LE(26);
+  if (version !== 1 || channels !== 1 || bitsPerSample !== 16 ||
+      headerBytes < 32 || headerBytes + sampleCount * 2 !== packet.length) return;
+
+  const ip = rinfo.address.replace(/^::ffff:/, '');
+  const device = pcmDeviceFor(ip);
+  const previous = pcmStreams.get(device);
+  const missing = previous && sequence > previous.sequence + 1
+    ? previous.missing + sequence - previous.sequence - 1
+    : previous?.missing || 0;
+  pcmStreams.set(device, {
+    device, source: ip, sequence, missing, sampleRate, sampleCount,
+    packets: (previous?.packets || 0) + 1, lastSeen: Date.now()
+  });
+
+  for (const client of wss.clients) {
+    if (client.readyState !== 1 || !client.pcmSubscriptions?.has(device)) continue;
+    if (client.bufferedAmount > PCM_MAX_WS_BACKLOG) {
+      client.pcmBackpressureDrops = (client.pcmBackpressureDrops || 0) + 1;
+      continue;
+    }
+    client.send(packet, { binary: true });
+  }
+});
+
+pcmSocket.bind(PCM_IN_PORT, '0.0.0.0', () => {
+  console.log(`PCM UDP listening on port ${PCM_IN_PORT}`);
+});
+
 // ─── Connection tracking ──────────────────────────────────────────────────────
 
 const connectionsByIp = new Map();
@@ -347,6 +396,7 @@ wss.on('connection', (ws, req) => {
 
   if (!connectionsByIp.has(clientIp)) connectionsByIp.set(clientIp, new Set());
   connectionsByIp.get(clientIp).add(ws);
+  ws.pcmSubscriptions = new Set();
 
   const net = getNetworkMode();
   ws.send(JSON.stringify({
@@ -376,6 +426,20 @@ wss.on('connection', (ws, req) => {
       if (data.type === 'osc_toggle_receive') {
         data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
         broadcastClientStats();
+        return;
+      }
+
+      if (data.type === 'pcm_subscribe' && typeof data.device === 'string') {
+        data.enabled === false
+          ? ws.pcmSubscriptions.delete(data.device)
+          : ws.pcmSubscriptions.add(data.device);
+        const stream = pcmStreams.get(data.device);
+        ws.send(JSON.stringify({
+          type: 'pcm_stream', device: data.device,
+          available: Boolean(stream),
+          ...(stream || {}),
+          backpressureDrops: ws.pcmBackpressureDrops || 0
+        }));
         return;
       }
 
