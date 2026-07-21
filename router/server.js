@@ -92,6 +92,8 @@ function transformElectricDashboard(html) {
   `;
   return html
     .replace("cameraImage.src='/camera.jpg", "cameraImage.src='/electric-sky/camera.jpg")
+    .replace("fetch('/status'", "fetch('/electric-sky/status'")
+    .replace("fetch('/restart'", "fetch('/electric-sky/restart'")
     .replace("function connect(){", routerBatch + "function connect(){")
     .replace(/ws=new WebSocket\('ws:\/\/[^']+:81\/'\);ws\.binaryType='arraybuffer';/, "ws=new WebSocket('wss://'+location.host);")
     .replace("ws.onopen=()=>{connection.textContent='● live'", "ws.onopen=()=>{connection.textContent='● router live'")
@@ -103,6 +105,7 @@ app.get(/^\/electric-sky$/, (req, res) => res.redirect(308, '/electric-sky/'));
 app.get('/electric-sky/', (req, res) => fetchElectric('/', res, transformElectricDashboard));
 app.get('/electric-sky/status', (req, res) => fetchElectric('/status', res));
 app.get('/electric-sky/camera.jpg', (req, res) => fetchElectric('/camera.jpg', res));
+app.get('/electric-sky/restart', (req, res) => fetchElectric('/restart', res));
 
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
