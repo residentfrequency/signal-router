@@ -60,7 +60,7 @@ function fetchIndoor(path, res, transform) {
     .send(`indoor-sky unavailable: ${error.message}`));
 }
 app.get(/^\/indoor-sky$/, (req, res) => res.redirect(308, '/indoor-sky/'));
-app.get('/indoor-sky/', (req, res) => fetchIndoor('/', res, html => html
+app.get('/indoor-sky/', (req, res) => fetchIndoor('/dashboard', res, html => html
   .replace('wss://adrian-pi:3000', 'wss://${location.host}')
   .replace("fetch('/status'", "fetch('/indoor-sky/status'")));
 app.get('/indoor-sky/status', (req, res) => fetchIndoor('/status', res));
