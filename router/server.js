@@ -1,6 +1,7 @@
 const express    = require('express');
 const { WebSocketServer } = require('ws');
 const https      = require('https');
+const http       = require('http');
 const fs         = require('fs');
 const os         = require('os');
 const dgram      = require('dgram');
@@ -352,6 +353,22 @@ const pcmStreams = new Map();
 const pcmAnalyzers = new Map();
 const PCM_MAX_WS_BACKLOG = 256 * 1024;
 
+function pcmSourceIp(device) {
+  const match = /^pcm\/(\d{1,3}(?:\.\d{1,3}){3})\/audio$/.exec(device);
+  return match?.[1] || null;
+}
+
+function updatePcmSource(device) {
+  const ip = pcmSourceIp(device);
+  if (!ip) return;
+  const enabled = [...wss.clients].some(client =>
+    client.readyState === 1 && client.pcmSubscriptions?.has(device));
+  const request = http.get({ host: ip, port: 80,
+    path: `/audio/raw?enabled=${enabled ? 1 : 0}`, timeout: 3000 }, response => response.resume());
+  request.on('timeout', () => request.destroy());
+  request.on('error', error => console.warn(`PCM control ${ip}: ${error.message}`));
+}
+
 function pcmDeviceFor(ip) {
   return `pcm/${ip}/audio`;
 }
@@ -497,6 +514,7 @@ wss.on('connection', (ws, req) => {
         data.enabled === false
           ? ws.pcmSubscriptions.delete(data.device)
           : ws.pcmSubscriptions.add(data.device);
+        updatePcmSource(data.device);
         const stream = pcmStreams.get(data.device);
         ws.send(JSON.stringify({
           type: 'pcm_stream', device: data.device,
@@ -538,6 +556,9 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    const pcmDevices = [...ws.pcmSubscriptions];
+    ws.pcmSubscriptions.clear();
+    for (const device of pcmDevices) updatePcmSource(device);
     connectionsByIp.get(clientIp)?.delete(ws);
     if (connectionsByIp.get(clientIp)?.size === 0) {
       connectionsByIp.delete(clientIp);
