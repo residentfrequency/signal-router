@@ -6,7 +6,7 @@
 <script>
 const params=new URLSearchParams(location.search),device=params.get('device')||'pcm/192.168.0.44/audio';deviceLabel.textContent=device;
 let audioCtx=null,analyser=null,gain=null,nextStart=0,packetCount=0,missingCount=0,lastSequence=null,lastArrival=0,maxArrival=0,sampleRate=16000,view='wave',frequencyMode='expanded';
-const PRESENTATION_LATENCY_MS=device.includes('indoor-sky')?2000:200;
+const PRESENTATION_LATENCY_MS=device.includes('indoor-sky')?3000:200;
 const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),spectrogramCanvas=document.createElement('canvas'),spectrogramCtx=spectrogramCanvas.getContext('2d'),level=document.getElementById('level'),fftPower=document.getElementById('fftPower'),interpolate=document.getElementById('interpolate'),centroidEnabled=document.getElementById('centroidEnabled'),centroidValue=document.getElementById('centroidValue');
 level.oninput=()=>{levelValue.textContent=level.value+'×';if(gain)gain.gain.value=Number(level.value)};
 fftPower.oninput=()=>{const size=2**Number(fftPower.value);fftValue.textContent=size;if(analyser)analyser.fftSize=size};
