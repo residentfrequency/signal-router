@@ -164,6 +164,8 @@ const OSC_OUT_PORT = 9000;
 const OSC_IN_PORT  = 5005;
 const PCM_IN_PORT  = 5007;
 const PCM_TCP_PORT = 5008;
+const PCM_USB_DEVICE = process.env.PCM_USB_DEVICE ||
+  '/dev/serial/by-id/usb-Espressif_USB_JTAG_serial_debug_unit_24:EC:4A:0E:B1:DC-if00';
 
 const oscReceiveClients = new Set();
 
@@ -392,8 +394,9 @@ function updatePcmSource(device) {
   if (!ip) return;
   const enabled = [...wss.clients].some(client =>
     client.readyState === 1 && client.pcmSubscriptions?.has(device));
+  const usb = ip === '192.168.0.32' && fs.existsSync(PCM_USB_DEVICE);
   const request = http.get({ host: ip, port: 80,
-    path: `/audio/raw?enabled=${enabled ? 1 : 0}`, timeout: 3000 }, response => response.resume());
+    path: `/audio/${usb ? 'usb' : 'raw'}?enabled=${enabled ? 1 : 0}`, timeout: 3000 }, response => response.resume());
   request.on('timeout', () => request.destroy());
   request.on('error', error => console.warn(`PCM control ${ip}: ${error.message}`));
 }
@@ -502,37 +505,61 @@ const pcmTcpServer = net.createServer(socket => {
   let pending = Buffer.alloc(0);
   socket.setNoDelay(true);
   socket.on('data', chunk => {
-    pending = Buffer.concat([pending, chunk]);
-    while (pending.length >= 32) {
-      const magic = pending.indexOf('ESAU');
-      if (magic < 0) {
-        pending = pending.subarray(Math.max(0, pending.length - 3));
-        return;
-      }
-      if (magic) pending = pending.subarray(magic);
-      if (pending.length < 32) return;
-      const sampleCount = pending.readUInt16LE(24);
-      const headerBytes = pending.readUInt16LE(26);
-      const bitsPerSample = pending.readUInt8(6);
-      const payloadBytes = bitsPerSample === 16 ? sampleCount * 2
-        : bitsPerSample === 4 ? Math.ceil((sampleCount - 1) / 2) : -1;
-      const packetBytes = headerBytes + payloadBytes;
-      if (headerBytes < 32 || sampleCount < 1 || sampleCount > 4096 ||
-          payloadBytes < 0 || packetBytes > 16384) {
-        pending = pending.subarray(4);
-        continue;
-      }
-      if (pending.length < packetBytes) return;
-      handlePcmPacket(pending.subarray(0, packetBytes), ip);
-      pending = pending.subarray(packetBytes);
-    }
-    if (pending.length > 65536) pending = Buffer.alloc(0);
+    pending = consumePcmBytes(pending, chunk, ip);
   });
   socket.on('error', error => console.warn(`PCM TCP ${ip}: ${error.message}`));
 });
 pcmTcpServer.listen(PCM_TCP_PORT, '0.0.0.0', () => {
   console.log(`PCM TCP listening on port ${PCM_TCP_PORT}`);
 });
+
+function consumePcmBytes(pending, chunk, source) {
+  pending = Buffer.concat([pending, chunk]);
+  while (pending.length >= 32) {
+    const magic = pending.indexOf('ESAU');
+    if (magic < 0) return pending.subarray(Math.max(0, pending.length - 3));
+    if (magic) pending = pending.subarray(magic);
+    if (pending.length < 32) return pending;
+    const sampleCount = pending.readUInt16LE(24);
+    const headerBytes = pending.readUInt16LE(26);
+    const bitsPerSample = pending.readUInt8(6);
+    const payloadBytes = bitsPerSample === 16 ? sampleCount * 2
+      : bitsPerSample === 4 ? Math.ceil((sampleCount - 1) / 2) : -1;
+    const packetBytes = headerBytes + payloadBytes;
+    if (headerBytes < 32 || sampleCount < 1 || sampleCount > 4096 ||
+        payloadBytes < 0 || packetBytes > 16384) {
+      pending = pending.subarray(4);
+      continue;
+    }
+    if (pending.length < packetBytes) return pending;
+    handlePcmPacket(pending.subarray(0, packetBytes), source);
+    pending = pending.subarray(packetBytes);
+  }
+  return pending.length > 65536 ? Buffer.alloc(0) : pending;
+}
+
+let pcmUsbStream = null;
+let pcmUsbPending = Buffer.alloc(0);
+function openPcmUsb() {
+  if (pcmUsbStream || !fs.existsSync(PCM_USB_DEVICE)) return;
+  try {
+    execSync(`stty -F '${PCM_USB_DEVICE}' 115200 raw -echo`);
+    pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE);
+    pcmUsbStream.on('data', chunk => {
+      pcmUsbPending = consumePcmBytes(pcmUsbPending, chunk, '192.168.0.32');
+    });
+    pcmUsbStream.on('error', error => console.warn(`PCM USB: ${error.message}`));
+    pcmUsbStream.on('close', () => {
+      pcmUsbStream = null;
+      pcmUsbPending = Buffer.alloc(0);
+    });
+    console.log(`PCM USB listening on ${PCM_USB_DEVICE}`);
+  } catch (error) {
+    console.warn(`PCM USB open: ${error.message}`);
+  }
+}
+openPcmUsb();
+setInterval(openPcmUsb, 3000);
 
 setInterval(() => {
   const now = Date.now();
