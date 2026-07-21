@@ -8,6 +8,7 @@ const dgram      = require('dgram');
 const net        = require('net');
 const { execSync } = require('child_process');
 const { PcmAnalyzer } = require('./audio-analysis');
+const { decodeImaAdpcm } = require('./ima-adpcm');
 
 // ─── SSL ─────────────────────────────────────────────────────────────────────
 
@@ -405,8 +406,19 @@ function handlePcmPacket(packet, sourceIp) {
   const sampleRate = packet.readUInt32LE(20);
   const sampleCount = packet.readUInt16LE(24);
   const headerBytes = packet.readUInt16LE(26);
-  if (version !== 1 || channels !== 1 || bitsPerSample !== 16 ||
-      headerBytes < 32 || headerBytes + sampleCount * 2 !== packet.length) return;
+  const payloadBytes = bitsPerSample === 16 ? sampleCount * 2
+    : bitsPerSample === 4 ? Math.ceil((sampleCount - 1) / 2) : -1;
+  if (version !== 1 || channels !== 1 || payloadBytes < 0 || headerBytes < 32 ||
+      headerBytes + payloadBytes !== packet.length) return;
+  if (bitsPerSample === 4) {
+    if (headerBytes < 36) return;
+    const decoded = Buffer.alloc(32 + sampleCount * 2);
+    packet.copy(decoded, 0, 0, 32);
+    decoded.writeUInt8(16, 6);
+    decoded.writeUInt16LE(32, 26);
+    decodeImaAdpcm(packet, sampleCount, headerBytes).copy(decoded, 32);
+    packet = decoded;
+  }
 
   const ip = sourceIp.replace(/^::ffff:/, '');
   const device = pcmDeviceFor(ip);
@@ -479,8 +491,12 @@ const pcmTcpServer = net.createServer(socket => {
       if (pending.length < 32) return;
       const sampleCount = pending.readUInt16LE(24);
       const headerBytes = pending.readUInt16LE(26);
-      const packetBytes = headerBytes + sampleCount * 2;
-      if (headerBytes < 32 || sampleCount < 1 || sampleCount > 4096 || packetBytes > 16384) {
+      const bitsPerSample = pending.readUInt8(6);
+      const payloadBytes = bitsPerSample === 16 ? sampleCount * 2
+        : bitsPerSample === 4 ? Math.ceil((sampleCount - 1) / 2) : -1;
+      const packetBytes = headerBytes + payloadBytes;
+      if (headerBytes < 32 || sampleCount < 1 || sampleCount > 4096 ||
+          payloadBytes < 0 || packetBytes > 16384) {
         pending = pending.subarray(4);
         continue;
       }
