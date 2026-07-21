@@ -354,8 +354,13 @@ const pcmAnalyzers = new Map();
 const PCM_MAX_WS_BACKLOG = 256 * 1024;
 
 function pcmSourceIp(device) {
-  const match = /^pcm\/(\d{1,3}(?:\.\d{1,3}){3})\/audio$/.exec(device);
-  return match?.[1] || null;
+  const capability = audioCapabilities.get(device);
+  if (capability?.source) return capability.source;
+  const match = /^pcm\/([^/]+)\/audio$/.exec(device);
+  if (!match) return null;
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(match[1])) return match[1];
+  for (const [ip, name] of sourceNames) if (name === match[1]) return ip;
+  return null;
 }
 
 function updatePcmSource(device) {
@@ -370,7 +375,7 @@ function updatePcmSource(device) {
 }
 
 function pcmDeviceFor(ip) {
-  return `pcm/${ip}/audio`;
+  return `pcm/${sourceNames.get(ip) || ip}/audio`;
 }
 
 function registerAudioCapability(source, name = sourceNames.get(source) || source) {
