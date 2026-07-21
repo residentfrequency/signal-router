@@ -65,6 +65,45 @@ app.get('/indoor-sky/', (req, res) => fetchIndoor('/dashboard', res, html => htm
   .replace("fetch('/status'", "fetch('/indoor-sky/status'")));
 app.get('/indoor-sky/status', (req, res) => fetchIndoor('/status', res));
 
+function fetchElectric(path, res, transform) {
+  const request = http.get({ host: '192.168.0.44', port: 80, path, timeout: 15000 }, response => {
+    const chunks = [];
+    response.on('data', chunk => chunks.push(chunk));
+    response.on('end', () => {
+      let body = Buffer.concat(chunks);
+      if (transform) body = Buffer.from(transform(body.toString('utf8')));
+      res.status(response.statusCode || 200)
+        .type(response.headers['content-type'] || 'application/octet-stream').send(body);
+    });
+  });
+  request.on('timeout', () => request.destroy(new Error('electric-sky timeout')));
+  request.on('error', error => res.status(502).type('text/plain')
+    .send(`electric-sky unavailable: ${error.message}`));
+}
+
+function transformElectricDashboard(html) {
+  const routerBatch = `function parseRouterBatch(message,bytes){
+    if(message.type!=='sample_batch'||!Array.isArray(message.streams)||!message.streams.some(s=>s.name==='electric-sky'))return;
+    const seq=message.packetSequence;if(Number.isFinite(seq)){if(packetLast!==null&&seq!==packetLast+1){const missing=Math.max(0,seq-packetLast-1);if(missing){packetGaps+=missing;packetGapEvents++}}packetLast=seq}packetCount++;bytesReceived+=bytes;
+    const now=performance.now();if(!observationStarted)observationStarted=now;if(lastArrival){const delta=now-lastArrival;if(delta>longestSilence)longestSilence=delta;intervalEma=intervalEma*.95+delta*.05;jitterEma=jitterEma*.9+Math.abs(delta-intervalEma)*.1}lastArrival=now;
+    const map={temperature:['temp',1],humidity:['humidity',1],pressure:['pressure',1],power:['power',.001],rms:['audio',1]};for(const stream of message.streams){if(stream.name!=='electric-sky'||!map[stream.param])continue;const [name,scale]=map[stream.param];for(const sample of stream.samples||[])rings[name].push({seq:sample[0],t:sample[1],v:sample[2]*scale})}
+  }
+  async function pollStatus(){try{const s=await fetch('/electric-sky/status',{cache:'no-store'}).then(r=>r.json());bmeHz.textContent=s.bme_actual_hz.toFixed(1)+' Hz';powerHz.textContent=s.power_actual_hz.toFixed(1)+' Hz';audioHz.textContent=s.audio_actual_hz.toFixed(1)+' Hz';bmeDetail.textContent='overruns '+s.bme_overruns;powerDetail.textContent='overruns '+s.power_overruns;audioDetail.textContent='overruns '+s.audio_overruns;transportQueued=0;transportDropped=s.transport_drops;scheduledHz=15.8;firmwareUptimeMs=s.uptime_ms;networkRssi=s.wifi_rssi_dbm;wifiReconnects=s.wifi_reconnects;oscFailures=s.osc_send_failures;oscSendAvgUs=s.osc_send_avg_us;oscSendMaxUs=s.osc_send_max_us;oscSendStalls=s.osc_send_stalls;if(baselineDrops===null){baselineDrops=transportDropped;baselineUptimeMs=firmwareUptimeMs}}catch{}}
+  `;
+  return html
+    .replace("cameraImage.src='/camera.jpg", "cameraImage.src='/electric-sky/camera.jpg")
+    .replace("function connect(){", routerBatch + "function connect(){")
+    .replace(/ws=new WebSocket\('ws:\/\/[^']+:81\/'\);ws\.binaryType='arraybuffer';/, "ws=new WebSocket('wss://'+location.host);")
+    .replace("ws.onopen=()=>{connection.textContent='● live'", "ws.onopen=()=>{connection.textContent='● router live'")
+    .replace("ws.onmessage=e=>{if(e.data instanceof ArrayBuffer)parsePacket(e.data)};", "ws.onmessage=e=>{if(typeof e.data==='string'){try{parseRouterBatch(JSON.parse(e.data),e.data.length)}catch{}}};")
+    .replace("captureCamera();connect();requestAnimationFrame(render);", "captureCamera();connect();pollStatus();setInterval(pollStatus,1000);requestAnimationFrame(render);");
+}
+
+app.get(/^\/electric-sky$/, (req, res) => res.redirect(308, '/electric-sky/'));
+app.get('/electric-sky/', (req, res) => fetchElectric('/', res, transformElectricDashboard));
+app.get('/electric-sky/status', (req, res) => fetchElectric('/status', res));
+app.get('/electric-sky/camera.jpg', (req, res) => fetchElectric('/camera.jpg', res));
+
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
