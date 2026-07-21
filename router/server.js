@@ -5,6 +5,7 @@ const http       = require('http');
 const fs         = require('fs');
 const os         = require('os');
 const dgram      = require('dgram');
+const net        = require('net');
 const { execSync } = require('child_process');
 const { PcmAnalyzer } = require('./audio-analysis');
 
@@ -140,6 +141,7 @@ function sendToSC(address, ...args) {
 const OSC_OUT_PORT = 9000;
 const OSC_IN_PORT  = 5005;
 const PCM_IN_PORT  = 5007;
+const PCM_TCP_PORT = 5008;
 
 const oscReceiveClients = new Set();
 
@@ -394,7 +396,7 @@ function registerAudioCapability(source, name = sourceNames.get(source) || sourc
   return capability;
 }
 
-pcmSocket.on('message', (packet, rinfo) => {
+function handlePcmPacket(packet, sourceIp) {
   if (packet.length < 32 || packet.toString('ascii', 0, 4) !== 'ESAU') return;
   const version = packet.readUInt8(4);
   const channels = packet.readUInt8(5);
@@ -406,7 +408,7 @@ pcmSocket.on('message', (packet, rinfo) => {
   if (version !== 1 || channels !== 1 || bitsPerSample !== 16 ||
       headerBytes < 32 || headerBytes + sampleCount * 2 !== packet.length) return;
 
-  const ip = rinfo.address.replace(/^::ffff:/, '');
+  const ip = sourceIp.replace(/^::ffff:/, '');
   const device = pcmDeviceFor(ip);
   const previous = pcmStreams.get(device);
   const missing = previous && sequence > previous.sequence + 1
@@ -453,10 +455,45 @@ pcmSocket.on('message', (packet, rinfo) => {
     }
     client.send(packet, { binary: true });
   }
-});
+}
+
+pcmSocket.on('message', (packet, rinfo) => handlePcmPacket(packet, rinfo.address));
 
 pcmSocket.bind(PCM_IN_PORT, '0.0.0.0', () => {
   console.log(`PCM UDP listening on port ${PCM_IN_PORT}`);
+});
+
+const pcmTcpServer = net.createServer(socket => {
+  const ip = socket.remoteAddress.replace(/^::ffff:/, '');
+  let pending = Buffer.alloc(0);
+  socket.setNoDelay(true);
+  socket.on('data', chunk => {
+    pending = Buffer.concat([pending, chunk]);
+    while (pending.length >= 32) {
+      const magic = pending.indexOf('ESAU');
+      if (magic < 0) {
+        pending = pending.subarray(Math.max(0, pending.length - 3));
+        return;
+      }
+      if (magic) pending = pending.subarray(magic);
+      if (pending.length < 32) return;
+      const sampleCount = pending.readUInt16LE(24);
+      const headerBytes = pending.readUInt16LE(26);
+      const packetBytes = headerBytes + sampleCount * 2;
+      if (headerBytes < 32 || sampleCount < 1 || sampleCount > 4096 || packetBytes > 16384) {
+        pending = pending.subarray(4);
+        continue;
+      }
+      if (pending.length < packetBytes) return;
+      handlePcmPacket(pending.subarray(0, packetBytes), ip);
+      pending = pending.subarray(packetBytes);
+    }
+    if (pending.length > 65536) pending = Buffer.alloc(0);
+  });
+  socket.on('error', error => console.warn(`PCM TCP ${ip}: ${error.message}`));
+});
+pcmTcpServer.listen(PCM_TCP_PORT, '0.0.0.0', () => {
+  console.log(`PCM TCP listening on port ${PCM_TCP_PORT}`);
 });
 
 setInterval(() => {
