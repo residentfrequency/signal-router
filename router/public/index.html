@@ -117,7 +117,6 @@ hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
   <span class="neutral" id="ws-status">connecting...</span>
   <span class="neutral" id="midi-status">WebMIDI not initialized</span>
   <span class="neutral" id="osc-status">OSC :9000</span>
-  <a class="neutral" href="/pcm/?device=pcm%2F192.168.0.44%2Faudio" target="_blank">ELECTRIC SKY AUDIO</a>
 </div>
 
 <div class="info-grid">
@@ -595,12 +594,17 @@ function ensureRow(data) {
 
   const table  = ensureSection(source);
   const assign = getAssignment(key);
+  const isAudio = data.type === 'audio';
 
   const defaultChannel = assign.channel ?? (data.type === 'midi' ? data.channel : '');
   const defaultCc      = assign.cc      ?? (data.type === 'midi' ? data.cc      : '');
 
-  const defaultMin = assign.min ?? (data.type === 'midi' ? 0   : data.min ?? 0);
-  const defaultMax = assign.max ?? (data.type === 'midi' ? 127 : data.max ?? 1);
+  const defaultMin = isAudio ? '' : assign.min ?? (data.type === 'midi' ? 0   : data.min ?? 0);
+  const defaultMax = isAudio ? '' : assign.max ?? (data.type === 'midi' ? 127 : data.max ?? 1);
+  const disabled = isAudio ? 'disabled' : '';
+  const viewHref = isAudio
+    ? `/pcm/?device=${encodeURIComponent(key)}`
+    : `/visualizer/?device=${encodeURIComponent(key)}`;
 
   const row  = table.insertRow();
 
@@ -610,20 +614,19 @@ function ensureRow(data) {
     <td class="val" id="raw-${safeKey}">--</td>
     <td class="val" id="midi-${safeKey}">--</td>
     <td><input type="number" min="1" max="16"
-         value="${defaultChannel}" placeholder="—"
+         value="${defaultChannel}" placeholder="—" ${disabled}
          onchange="setAssignment('${key}', 'channel', +this.value); applyMidiOut('${key}')"></td>
     <td><input type="number" min="0" max="127"
-         value="${defaultCc}" placeholder="—"
+         value="${defaultCc}" placeholder="—" ${disabled}
          onchange="setAssignment('${key}', 'cc', +this.value); applyMidiOut('${key}')"></td>
     <td><input type="number" min="0" max="9999"
-         value="${defaultMin}" placeholder="—"
+         value="${defaultMin}" placeholder="—" ${disabled}
          onchange="setAssignment('${key}', 'min', +this.value)"></td>
     <td><input type="number" min="0" max="9999"
-         value="${defaultMax}" placeholder="—"
+         value="${defaultMax}" placeholder="—" ${disabled}
          onchange="setAssignment('${key}', 'max', +this.value)"></td>
-    <td><button class="btn on" id="out-${safeKey}"
-         onclick="toggleOut('${key}', '${safeKey}')">ON</button></td>
-    <td><a class="btn" href="/visualizer/?device=${encodeURIComponent(key)}" target="_blank">OPEN</a></td>
+    <td>${isAudio ? '<span class="dim">—</span>' : `<button class="btn on" id="out-${safeKey}" onclick="toggleOut('${key}', '${safeKey}')">ON</button>`}</td>
+    <td><a class="btn" href="${viewHref}" target="_blank">${isAudio ? 'AUDIO' : 'OPEN'}</a></td>
   `;
 
   if (data.type === 'midi' && data.msgType === 'cc') {
@@ -667,6 +670,11 @@ function updateRow(data) {
       smoothed[key] = 0.3 * norm + 0.7 * smoothed[key];
       sendCC(assign.channel, assign.cc, smoothed[key] * 127);
     }
+  }
+
+  if (data.type === 'audio') {
+    if (rawEl) rawEl.textContent = data.available ? `LIVE ${data.sampleRate || 0} Hz` : 'idle';
+    if (midiEl) midiEl.textContent = '—';
   }
 
   if (data.type === 'midi') {
@@ -715,6 +723,11 @@ function handleIncomingSignal(data) {
     ensureRow(data);
     updateRow(data);
     if (data.raw) sendMidi(data.raw);
+  }
+
+  if (data.type === 'audio') {
+    ensureRow(data);
+    updateRow(data);
   }
 }
 
@@ -776,7 +789,7 @@ ws.onmessage = event => {
     }
   }
 
-  if (data.type === 'osc' || data.type === 'json' || data.type === 'midi') {
+  if (data.type === 'osc' || data.type === 'json' || data.type === 'midi' || data.type === 'audio') {
     handleIncomingSignal(data);
   }
 

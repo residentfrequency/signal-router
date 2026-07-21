@@ -5,6 +5,7 @@ const fs         = require('fs');
 const os         = require('os');
 const dgram      = require('dgram');
 const { execSync } = require('child_process');
+const { PcmAnalyzer } = require('./audio-analysis');
 
 // ─── SSL ─────────────────────────────────────────────────────────────────────
 
@@ -47,6 +48,8 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 // ─── State ────────────────────────────────────────────────────────────────────
 
 const state = { distance: 0, rate: 0 };
+const sourceNames = new Map();
+const audioCapabilities = new Map();
 
 // ─── OSC encoding helpers ─────────────────────────────────────────────────────
 
@@ -228,6 +231,7 @@ function decodeScalarBatch(messages, senderIp) {
       }
     }
     if (samples.length > 0) {
+      sourceNames.set(senderIp, name);
       streams.push({ device: `osc/${name}/${param}`, name, param, unit, samples });
     }
   }
@@ -250,6 +254,9 @@ oscInSocket.on('message', (buf, rinfo) => {
   const scalarBatch = decodeScalarBatch(messages, senderIp);
   if (scalarBatch) {
     broadcastSampleBatch(scalarBatch, buf);
+    for (const stream of scalarBatch.streams) {
+      if (stream.param === 'rms') registerAudioCapability(scalarBatch.source, stream.name);
+    }
     return;
   }
 
@@ -342,10 +349,27 @@ midiSocket.bind(5006, '127.0.0.1', () => {
 
 const pcmSocket = dgram.createSocket('udp4');
 const pcmStreams = new Map();
+const pcmAnalyzers = new Map();
 const PCM_MAX_WS_BACKLOG = 256 * 1024;
 
 function pcmDeviceFor(ip) {
   return `pcm/${ip}/audio`;
+}
+
+function registerAudioCapability(source, name = sourceNames.get(source) || source) {
+  const device = pcmDeviceFor(source);
+  let capability = audioCapabilities.get(device);
+  if (!capability) {
+    capability = {
+      type: 'audio', device, source, name, param: 'audio',
+      sampleRate: 16000, available: false, enabled: true
+    };
+    audioCapabilities.set(device, capability);
+    broadcast(capability);
+  } else if (name !== source && capability.name !== name) {
+    capability.name = name;
+  }
+  return capability;
 }
 
 pcmSocket.on('message', (packet, rinfo) => {
@@ -366,10 +390,38 @@ pcmSocket.on('message', (packet, rinfo) => {
   const missing = previous && sequence > previous.sequence + 1
     ? previous.missing + sequence - previous.sequence - 1
     : previous?.missing || 0;
-  pcmStreams.set(device, {
+  const now = Date.now();
+  const stream = {
     device, source: ip, sequence, missing, sampleRate, sampleCount,
-    packets: (previous?.packets || 0) + 1, lastSeen: Date.now()
-  });
+    packets: (previous?.packets || 0) + 1, lastSeen: now,
+    announcedAt: previous?.announcedAt || 0
+  };
+  const capability = registerAudioCapability(ip);
+  capability.available = true;
+  capability.sampleRate = sampleRate;
+  if (!previous || now - stream.announcedAt >= 1000) {
+    stream.announcedAt = now;
+    broadcast({ ...capability, available: true, packets: stream.packets, missing, value: sampleRate });
+  }
+  pcmStreams.set(device, stream);
+
+  let analyzer = pcmAnalyzers.get(device);
+  if (!analyzer) {
+    analyzer = new PcmAnalyzer();
+    pcmAnalyzers.set(device, analyzer);
+  }
+  const analysis = analyzer.pushInt16LE(packet.subarray(headerBytes), sampleRate);
+  const name = sourceNames.get(ip);
+  if (analysis && name) {
+    const signals = ['bass', 'mid', 'high', 'centroid'].map(param => ({
+      type: 'osc', device: `osc/${name}/${param}`,
+      name, param, source: ip, value: analysis[param],
+      min: 0, max: 1, unit: param === 'centroid' ? 'normalized-frequency' : 'normalized-energy',
+      ...(param === 'centroid' && { centroidHz: analysis.centroidHz }),
+      enabled: true
+    }));
+    broadcastSignalBatch(signals);
+  }
 
   for (const client of wss.clients) {
     if (client.readyState !== 1 || !client.pcmSubscriptions?.has(device)) continue;
@@ -384,6 +436,17 @@ pcmSocket.on('message', (packet, rinfo) => {
 pcmSocket.bind(PCM_IN_PORT, '0.0.0.0', () => {
   console.log(`PCM UDP listening on port ${PCM_IN_PORT}`);
 });
+
+setInterval(() => {
+  const now = Date.now();
+  for (const capability of audioCapabilities.values()) {
+    const stream = pcmStreams.get(capability.device);
+    if (capability.available && (!stream || now - stream.lastSeen > 1500)) {
+      capability.available = false;
+      broadcast({ ...capability, available: false, value: 0 });
+    }
+  }
+}, 1000);
 
 // ─── Connection tracking ──────────────────────────────────────────────────────
 
@@ -407,6 +470,7 @@ wss.on('connection', (ws, req) => {
     networkSsid: net.ssid
   }));
   ws.send(JSON.stringify({ type: 'state', state }));
+  for (const capability of audioCapabilities.values()) ws.send(JSON.stringify(capability));
   ws.send(JSON.stringify({
     type: 'client_info',
     ip: clientIp,

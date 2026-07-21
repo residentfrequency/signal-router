@@ -54,6 +54,7 @@ The Pi acts as a hub. Every signal — environmental sensor readings, MIDI CC va
 signal-router/
   router/           Node.js WebSocket/OSC signal router
     server.js
+    audio-analysis.js  PCM FFT analysis for bass/mid/high/centroid routes
     package.json
     public/
       index.html    Router UI
@@ -68,6 +69,7 @@ signal-router/
     index.html
   mic/              Microphone audio analysis
     index.html
+  pcm/              Subscription-based PCM audio visualizer/player
   visualizer/       Shared time-domain and spectral signal viewer
     index.html
   pi-setup/         Pi configuration reference
