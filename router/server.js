@@ -431,6 +431,7 @@ function handlePcmPacket(packet, sourceIp) {
     : bitsPerSample === 4 ? Math.ceil((sampleCount - 1) / 2) : -1;
   if (version !== 1 || channels !== 1 || payloadBytes < 0 || headerBytes < 32 ||
       headerBytes + payloadBytes !== packet.length) return;
+  const wirePacket = packet;
   if (bitsPerSample === 4) {
     if (headerBytes < 36) return;
     const decoded = Buffer.alloc(32 + sampleCount * 2);
@@ -486,7 +487,7 @@ function handlePcmPacket(packet, sourceIp) {
       client.pcmBackpressureDrops = (client.pcmBackpressureDrops || 0) + 1;
       continue;
     }
-    client.send(packet, { binary: true });
+    client.send(wirePacket, { binary: true });
   }
 }
 
