@@ -44,6 +44,27 @@ app.use('/moire', express.static('../moire'));
 app.use('/visualizer', express.static('../visualizer'));
 app.use('/pcm', express.static('../pcm'));
 
+function fetchIndoor(path, res, transform) {
+  const request = http.get({ host: '192.168.0.32', port: 80, path, timeout: 8000 }, response => {
+    const chunks = [];
+    response.on('data', chunk => chunks.push(chunk));
+    response.on('end', () => {
+      let body = Buffer.concat(chunks);
+      if (transform) body = Buffer.from(transform(body.toString('utf8')));
+      res.status(response.statusCode || 200)
+        .type(response.headers['content-type'] || 'text/plain').send(body);
+    });
+  });
+  request.on('timeout', () => request.destroy(new Error('indoor-sky timeout')));
+  request.on('error', error => res.status(502).type('text/plain')
+    .send(`indoor-sky unavailable: ${error.message}`));
+}
+app.get('/indoor-sky', (req, res) => res.redirect(308, '/indoor-sky/'));
+app.get('/indoor-sky/', (req, res) => fetchIndoor('/', res, html => html
+  .replace('wss://adrian-pi:3000', 'wss://${location.host}')
+  .replace("fetch('/status'", "fetch('/indoor-sky/status'")));
+app.get('/indoor-sky/status', (req, res) => fetchIndoor('/status', res));
+
 require('dotenv').config();
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
