@@ -64,8 +64,14 @@ app.get('/indoor-sky/', (req, res) => fetchIndoor('/dashboard', res, html => htm
   .replace("'wss://adrian-pi:3000'", "'wss://'+location.host")
   .replace("fetch('/status'", "fetch('/indoor-sky/status'")
   .replace("fetch('/restart'", "fetch('/indoor-sky/restart'")));
-app.get('/indoor-sky/status', (req, res) => fetchIndoor('/status', res));
-app.get('/indoor-sky/restart', (req, res) => fetchIndoor('/restart', res));
+app.get('/indoor-sky/status', (req, res) => {
+  if (indoorUsbStatus && Date.now() - indoorUsbStatusAt < 5000) return res.json(indoorUsbStatus);
+  fetchIndoor('/status', res);
+});
+app.get('/indoor-sky/restart', (req, res) => {
+  if (sendIndoorUsbCommand('INRS')) return res.type('text/plain').send('restarting over USB');
+  fetchIndoor('/restart', res);
+});
 
 function fetchElectric(path, res, transform) {
   const request = http.get({ host: '192.168.0.44', port: 80, path, timeout: 15000 }, response => {
@@ -134,6 +140,11 @@ function encodeOSCInt(i) {
   buf.writeInt32BE(i, 0);
   return buf;
 }
+function encodeOSCDouble(value) {
+  const buf = Buffer.alloc(8);
+  buf.writeDoubleBE(value, 0);
+  return buf;
+}
 
 function buildOSCMessage(address, ...args) {
   const addrBuf = encodeOSCString(address);
@@ -149,6 +160,38 @@ function buildOSCMessage(address, ...args) {
     }
   }
   return Buffer.concat([addrBuf, encodeOSCString(typeTags), ...argBufs]);
+}
+
+function buildTypedOSCMessage(address, types, args) {
+  const encoded = args.map((arg, index) => {
+    const type = types[index];
+    if (type === 'i') return encodeOSCInt(arg | 0);
+    if (type === 'f') return encodeOSCFloat(arg);
+    if (type === 'd') return encodeOSCDouble(arg);
+    if (type === 's') return encodeOSCString(arg);
+    throw new Error(`Unsupported OSC type: ${type}`);
+  });
+  return Buffer.concat([encodeOSCString(address), encodeOSCString(`,${types}`), ...encoded]);
+}
+
+function buildScalarBatchOsc(batch) {
+  const marker = Buffer.alloc(16);
+  marker.write('#bundle\0', 0, 'ascii');
+  marker.writeUInt32BE(1, 12);
+  const elements = [marker];
+  for (const stream of batch.streams) {
+    const types = ['i', 'd', 's'];
+    const args = [batch.packetSequence, batch.sendTimeUs, stream.unit || ''];
+    for (const sample of stream.samples) {
+      types.push('i', 'i', 'f');
+      args.push(sample[0], Math.trunc(sample[1] - batch.sendTimeUs), sample[2]);
+    }
+    const message = buildTypedOSCMessage(`/batch/${stream.name}/${stream.param}`, types.join(''), args);
+    const size = Buffer.alloc(4);
+    size.writeUInt32BE(message.length);
+    elements.push(size, message);
+  }
+  return Buffer.concat(elements);
 }
 
 function parseOSCMessage(buf) {
@@ -548,6 +591,41 @@ function handlePcmPacket(packet, sourceIp) {
   }
 }
 
+function handleIndoorScalarPacket(packet, source) {
+  if (packet.length < 76 || packet.toString('ascii', 0, 4) !== 'INSK') return;
+  const headerBytes = packet.readUInt16LE(6);
+  const packetSequence = packet.readUInt32LE(8);
+  const sendTimeUs = Number(packet.readBigUInt64LE(12));
+  const bmeCount = packet.readUInt16LE(20);
+  const audioCount = packet.readUInt16LE(22);
+  const streams = [
+    { device: 'osc/indoor-sky/temperature', name: 'indoor-sky', param: 'temperature', unit: 'celsius', samples: [] },
+    { device: 'osc/indoor-sky/humidity', name: 'indoor-sky', param: 'humidity', unit: 'percent', samples: [] },
+    { device: 'osc/indoor-sky/pressure', name: 'indoor-sky', param: 'pressure', unit: 'hpa', samples: [] },
+    { device: 'osc/indoor-sky/rms', name: 'indoor-sky', param: 'rms', unit: 'dbfs', samples: [] }
+  ];
+  let offset = headerBytes;
+  for (let i = 0; i < bmeCount; i++, offset += 24) {
+    const sequence = packet.readUInt32LE(offset);
+    const timeUs = Number(packet.readBigUInt64LE(offset + 4));
+    streams[0].samples.push([sequence, timeUs, packet.readFloatLE(offset + 12)]);
+    streams[1].samples.push([sequence, timeUs, packet.readFloatLE(offset + 16)]);
+    streams[2].samples.push([sequence, timeUs, packet.readFloatLE(offset + 20)]);
+  }
+  for (let i = 0; i < audioCount; i++, offset += 16) {
+    streams[3].samples.push([
+      packet.readUInt32LE(offset), Number(packet.readBigUInt64LE(offset + 4)),
+      packet.readFloatLE(offset + 12)
+    ]);
+  }
+  const populated = streams.filter(stream => stream.samples.length);
+  if (!populated.length) return;
+  registerSource(source, 'indoor-sky');
+  const batch = { type: 'sample_batch', source, packetSequence, sendTimeUs, streams: populated };
+  broadcastSampleBatch(batch, buildScalarBatchOsc(batch));
+  if (audioCount) registerAudioCapability(source, 'indoor-sky');
+}
+
 pcmSocket.on('message', (packet, rinfo) => handlePcmPacket(packet, rinfo.address));
 
 pcmSocket.bind(PCM_IN_PORT, '0.0.0.0', () => {
@@ -594,13 +672,81 @@ function consumePcmBytes(pending, chunk, source) {
 
 let pcmUsbStream = null;
 let pcmUsbPending = Buffer.alloc(0);
+let indoorUsbStatus = null;
+let indoorUsbStatusAt = 0;
+
+function sendIndoorUsbCommand(command) {
+  if (!fs.existsSync(PCM_USB_DEVICE) || Buffer.byteLength(command) !== 4) return false;
+  try {
+    const descriptor = fs.openSync(PCM_USB_DEVICE, 'r+');
+    fs.writeSync(descriptor, command);
+    fs.closeSync(descriptor);
+    return true;
+  } catch (error) {
+    console.warn(`Indoor USB command: ${error.message}`);
+    return false;
+  }
+}
+
+function consumeUsbBytes(pending, chunk, source) {
+  pending = Buffer.concat([pending, chunk]);
+  while (pending.length >= 4) {
+    const audioAt = pending.indexOf('ESAU');
+    const scalarAt = pending.indexOf('INSK');
+    const statusAt = pending.indexOf('INJS');
+    const positions = [audioAt, scalarAt, statusAt].filter(position => position >= 0);
+    if (!positions.length) return pending.subarray(Math.max(0, pending.length - 3));
+    const frameAt = Math.min(...positions);
+    if (frameAt) pending = pending.subarray(frameAt);
+    if (pending.length < 4) break;
+    const magic = pending.toString('ascii', 0, 4);
+    if (magic === 'INJS') {
+      if (pending.length < 8) break;
+      const length = pending.readUInt32LE(4);
+      if (length < 2 || length > 16384) { pending = pending.subarray(4); continue; }
+      if (pending.length < 8 + length) break;
+      try {
+        indoorUsbStatus = JSON.parse(pending.toString('utf8', 8, 8 + length));
+        indoorUsbStatusAt = Date.now();
+      } catch (error) {
+        console.warn(`Indoor USB status: ${error.message}`);
+      }
+      pending = pending.subarray(8 + length);
+      continue;
+    }
+    if (magic === 'ESAU') {
+      if (pending.length < 32) break;
+      const count = pending.readUInt16LE(24), header = pending.readUInt16LE(26), bits = pending.readUInt8(6);
+      const payload = bits === 16 ? count * 2 : bits === 4 ? Math.ceil((count - 1) / 2) : -1;
+      const length = header + payload;
+      if (header < 32 || count < 1 || count > 4096 || payload < 0 || length > 16384) {
+        pending = pending.subarray(4); continue;
+      }
+      if (pending.length < length) break;
+      handlePcmPacket(pending.subarray(0, length), source);
+      pending = pending.subarray(length);
+      continue;
+    }
+    if (pending.length < 76) break;
+    const header = pending.readUInt16LE(6), bmeCount = pending.readUInt16LE(20), audioCount = pending.readUInt16LE(22);
+    const length = header + bmeCount * 24 + audioCount * 16;
+    if (header < 76 || header > 256 || bmeCount > 64 || audioCount > 128 || length > 16384) {
+      pending = pending.subarray(4); continue;
+    }
+    if (pending.length < length) break;
+    handleIndoorScalarPacket(pending.subarray(0, length), source);
+    pending = pending.subarray(length);
+  }
+  return pending.length > 65536 ? Buffer.alloc(0) : pending;
+}
+
 function openPcmUsb() {
   if (pcmUsbStream || !fs.existsSync(PCM_USB_DEVICE)) return;
   try {
     execSync(`stty -F '${PCM_USB_DEVICE}' 115200 raw -echo`);
     pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE);
     pcmUsbStream.on('data', chunk => {
-      pcmUsbPending = consumePcmBytes(pcmUsbPending, chunk, '192.168.0.32');
+      pcmUsbPending = consumeUsbBytes(pcmUsbPending, chunk, '192.168.0.32');
     });
     pcmUsbStream.on('error', error => console.warn(`PCM USB: ${error.message}`));
     pcmUsbStream.on('close', () => {
