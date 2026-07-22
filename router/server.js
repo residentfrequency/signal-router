@@ -60,11 +60,41 @@ function fetchIndoor(path, res, transform) {
   request.on('error', error => res.status(502).type('text/plain')
     .send(`indoor-sky unavailable: ${error.message}`));
 }
+const INDOOR_DASHBOARD_CACHE = `${os.homedir()}/.cache/signal-router/indoor-sky.html`;
+function transformIndoorDashboard(html) {
+  return html
+    .replace("'wss://adrian-pi:3000'", "'wss://'+location.host")
+    .replace("fetch('/status'", "fetch('/indoor-sky/status'")
+    .replace("fetch('/restart'", "fetch('/indoor-sky/restart'");
+}
+function refreshIndoorDashboard(callback = () => {}) {
+  const request = http.get({ host: '192.168.0.32', port: 80, path: '/dashboard', timeout: 8000 }, response => {
+    const chunks = [];
+    response.on('data', chunk => chunks.push(chunk));
+    response.on('end', () => {
+      if (response.statusCode !== 200) return callback(new Error(`dashboard HTTP ${response.statusCode}`));
+      const html = transformIndoorDashboard(Buffer.concat(chunks).toString('utf8'));
+      try {
+        fs.mkdirSync(`${os.homedir()}/.cache/signal-router`, { recursive: true });
+        fs.writeFileSync(INDOOR_DASHBOARD_CACHE, html);
+      } catch (error) { return callback(error); }
+      callback(null, html);
+    });
+  });
+  request.on('timeout', () => request.destroy(new Error('indoor-sky dashboard timeout')));
+  request.on('error', callback);
+}
 app.get(/^\/indoor-sky$/, (req, res) => res.redirect(308, '/indoor-sky/'));
-app.get('/indoor-sky/', (req, res) => fetchIndoor('/dashboard', res, html => html
-  .replace("'wss://adrian-pi:3000'", "'wss://'+location.host")
-  .replace("fetch('/status'", "fetch('/indoor-sky/status'")
-  .replace("fetch('/restart'", "fetch('/indoor-sky/restart'")));
+app.get('/indoor-sky/', (req, res) => {
+  if (fs.existsSync(INDOOR_DASHBOARD_CACHE)) {
+    res.type('text/html').send(fs.readFileSync(INDOOR_DASHBOARD_CACHE));
+    refreshIndoorDashboard(error => { if (error) console.warn(`Indoor dashboard refresh: ${error.message}`); });
+    return;
+  }
+  refreshIndoorDashboard((error, html) => error
+    ? res.status(502).type('text/plain').send(`indoor-sky dashboard unavailable: ${error.message}`)
+    : res.type('text/html').send(html));
+});
 app.get('/indoor-sky/status', (req, res) => {
   if (indoorUsbStatus && Date.now() - indoorUsbStatusAt < 5000) return res.json(indoorUsbStatus);
   fetchIndoor('/status', res);
@@ -495,6 +525,10 @@ function updatePcmSource(device) {
   const enabled = [...wss.clients].some(client =>
     client.readyState === 1 && client.pcmSubscriptions?.has(device));
   const usb = ip === '192.168.0.32' && fs.existsSync(PCM_USB_DEVICE);
+  if (usb) {
+    sendIndoorUsbCommand(enabled ? 'INP1' : 'INP0');
+    return;
+  }
   const request = http.get({ host: ip, port: 80,
     path: `/audio/${usb ? 'usb' : 'raw'}?enabled=${enabled ? 1 : 0}`, timeout: 3000 }, response => response.resume());
   request.on('timeout', () => request.destroy());
