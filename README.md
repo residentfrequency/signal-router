@@ -119,20 +119,7 @@ cd signal-router/router
 npm install
 ```
 
-### 5. Environment variables
-
-The router polls Supabase for ESP32 sensor data. Create a `.env` file in `router/`:
-
-```bash
-nano ~/signal-router/router/.env
-```
-
-```
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your-anon-key
-```
-
-### 6. SSL certificate
+### 5. SSL certificate
 
 The router runs HTTPS. It first tries to use the Tailscale certificate, then falls back to a self-signed cert. Generate a self-signed cert for local use:
 
@@ -517,15 +504,15 @@ Every signal includes `min` and `max` fields declaring the expected value range.
 }
 ```
 
-**json** — browser or HTTP origin (mic Web Audio analysis, moire derived signals, ESP32 via Supabase). Value range depends on source — normalized 0–1 for browser-generated signals, real-world units for sensor data:
+**json** — browser or HTTP origin (mic Web Audio analysis and moire-derived signals). Values are normalized 0–1:
 ```json
 {
   "type": "json",
-  "device": "json/esp32-am2320/temp_c",
-  "value": 23.8,
+  "device": "json/web-audio/centroid",
+  "value": 0.476,
   "min": 0,
-  "max": 50,
-  "source": "adrian-pi"
+  "max": 1,
+  "source": "browser"
 }
 ```
 
@@ -601,7 +588,7 @@ Every connected browser that has RECEIVE ON gets all signals as OSC UDP on port 
 OSC address format mirrors the device field:
 ```
 /osc/pi-hc-sr04/distance-cm   142.3  0.369
-/json/esp32-am2320/temp_c     23.8   0.476
+/json/web-audio/centroid      0.476  0.476
 /midi/Teensy_MIDI/ch3/cc1     0.504  64
 ```
 

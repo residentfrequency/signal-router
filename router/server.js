@@ -110,8 +110,6 @@ app.get('/electric-sky/camera.jpg', (req, res) => fetchElectric('/camera.jpg', r
 app.get('/electric-sky/restart', (req, res) => fetchElectric('/restart', res));
 
 require('dotenv').config();
-const SUPABASE_URL      = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -784,31 +782,3 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`OSC inbound on port ${OSC_IN_PORT} (all reachable senders)`);
   console.log(`OSC outbound on port ${OSC_OUT_PORT} (registered receive clients)`);
 });
-
-// ─── Supabase polling ─────────────────────────────────────────────────────────
-
-const { createClient } = require('@supabase/supabase-js');
-const WebSocket        = require('ws');
-const supabase         = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  realtime: { transport: WebSocket }
-});
-
-setInterval(async () => {
-  try {
-    const { data, error } = await supabase
-      .from('readings')
-      .select('device_id, ts, temp_c, temp_f, rh')
-      .order('ts', { ascending: false })
-      .limit(1);
-
-    if (error) { console.error('Supabase error:', error.message); return; }
-
-    if (data?.[0]) {
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_c', value: data[0].temp_c, source: os.hostname(), min: 0, max: 50 });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/temp_f', value: data[0].temp_f, source: os.hostname(), min: 32, max: 122 });
-      broadcast({ type: 'json', device: 'json/esp32-am2320/rh',     value: data[0].rh,     source: os.hostname(), min: 0, max: 100 });
-    }
-  } catch (e) {
-    console.error('Error fetching from Supabase:', e.message);
-  }
-}, 2000);
