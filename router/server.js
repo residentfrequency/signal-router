@@ -62,8 +62,10 @@ function fetchIndoor(path, res, transform) {
 app.get(/^\/indoor-sky$/, (req, res) => res.redirect(308, '/indoor-sky/'));
 app.get('/indoor-sky/', (req, res) => fetchIndoor('/dashboard', res, html => html
   .replace("'wss://adrian-pi:3000'", "'wss://'+location.host")
-  .replace("fetch('/status'", "fetch('/indoor-sky/status'")));
+  .replace("fetch('/status'", "fetch('/indoor-sky/status'")
+  .replace("fetch('/restart'", "fetch('/indoor-sky/restart'")));
 app.get('/indoor-sky/status', (req, res) => fetchIndoor('/status', res));
+app.get('/indoor-sky/restart', (req, res) => fetchIndoor('/restart', res));
 
 function fetchElectric(path, res, transform) {
   const request = http.get({ host: '192.168.0.44', port: 80, path, timeout: 15000 }, response => {
