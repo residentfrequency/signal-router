@@ -9,6 +9,7 @@ const net        = require('net');
 const { execSync } = require('child_process');
 const { PcmAnalyzer } = require('./audio-analysis');
 const { decodeImaAdpcm } = require('./ima-adpcm');
+const { SerialBatchPacer } = require('./serial-batch-pacer');
 
 // ─── SSL ─────────────────────────────────────────────────────────────────────
 
@@ -122,6 +123,8 @@ require('dotenv').config();
 const state = { distance: 0, rate: 0 };
 const sourceNames = new Map();
 const audioCapabilities = new Map();
+const indoorSerialPacer = new SerialBatchPacer(batch =>
+  broadcastSampleBatch(batch, buildScalarBatchOsc(batch)));
 
 // ─── OSC encoding helpers ─────────────────────────────────────────────────────
 
@@ -622,7 +625,7 @@ function handleIndoorScalarPacket(packet, source) {
   if (!populated.length) return;
   registerSource(source, 'indoor-sky');
   const batch = { type: 'sample_batch', source, packetSequence, sendTimeUs, streams: populated };
-  broadcastSampleBatch(batch, buildScalarBatchOsc(batch));
+  indoorSerialPacer.push(batch);
   if (audioCount) registerAudioCapability(source, 'indoor-sky');
 }
 
