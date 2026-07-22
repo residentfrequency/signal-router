@@ -149,8 +149,8 @@ hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
 <table id="midi-ports-table">
   <tr>
     <th style="width:40%">PORT</th>
-    <th style="width:15%">RECEIVE</th>
     <th style="width:15%">SEND</th>
+    <th style="width:15%">RECEIVE</th>
     <th style="width:30%">STATUS</th>
   </tr>
 </table>
@@ -417,15 +417,15 @@ function renderMidiPorts() {
         ? `<button class="btn ${send ? 'on' : 'off'}"
                onclick="toggleSend('${name}')">${send ? 'ON' : 'OFF'}</button>`
         : '<span class="dim">—</span>'}</td>
-      <td class="dim">${recv && send ? 'receive + send' :
-                        recv         ? 'receiving from router' :
-                        send         ? 'sending to router' : ''}</td>
+      <td class="dim">${recv && send ? 'router sending + receiving' :
+                        recv         ? 'router sending to port' :
+                        send         ? 'router receiving from port' : ''}</td>
     `;
   }
 
   const recvCount = [...ports.keys()].filter(isReceiving).length;
   const sendCount = [...ports.keys()].filter(isSending).length;
-  setStatus('midi-status', `${recvCount} receiving, ${sendCount} sending`);
+  setStatus('midi-status', `${recvCount} sending, ${sendCount} receiving`);
 }
 
 function toggleReceive(portName) {
