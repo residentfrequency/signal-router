@@ -624,7 +624,7 @@ function handleIndoorScalarPacket(packet, source) {
   const populated = streams.filter(stream => stream.samples.length);
   if (!populated.length) return;
   registerSource(source, 'indoor-sky');
-  const batch = { type: 'sample_batch', source, packetSequence, sendTimeUs, streams: populated };
+  const batch = { type: 'sample_batch', transport: 'usb', source, packetSequence, sendTimeUs, streams: populated };
   indoorSerialPacer.push(batch);
   if (audioCount) registerAudioCapability(source, 'indoor-sky');
 }

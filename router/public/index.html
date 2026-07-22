@@ -250,6 +250,8 @@ let smoothed   = {};
 let MY_IP      = null;
 const midiOutputOpening = new WeakMap();
 const sourceMetadata = new Map();
+const serialBatchPresenters = new Map();
+const SERIAL_PRESENTATION_BUFFER_MS = 500;
 
 const portState = loadPortState();
 
@@ -734,6 +736,43 @@ function handleIncomingSignal(data) {
   }
 }
 
+function presentSampleBatch(data) {
+  data.streams.forEach(stream => {
+    const latest = stream.samples?.[stream.samples.length - 1];
+    if (!latest) return;
+    handleIncomingSignal({
+      type: 'osc', device: stream.device,
+      name: stream.name, param: stream.param, unit: stream.unit,
+      sequence: latest[0], timeUs: latest[1], value: latest[2],
+      source: data.source, enabled: true
+    });
+  });
+}
+
+function queueSerialBatch(data) {
+  let presenter = serialBatchPresenters.get(data.source);
+  if (!presenter) {
+    presenter = { queue: [], timer: null, lastTimeUs: null };
+    serialBatchPresenters.set(data.source, presenter);
+  }
+  if (presenter.lastTimeUs !== null && data.sendTimeUs <= presenter.lastTimeUs) {
+    clearTimeout(presenter.timer); presenter.queue.length = 0; presenter.timer = null;
+  }
+  presenter.lastTimeUs = data.sendTimeUs;
+  presenter.queue.push(data);
+  if (presenter.timer !== null) return;
+  const drain = () => {
+    presenter.timer = null;
+    const current = presenter.queue.shift();
+    if (!current) return;
+    presentSampleBatch(current);
+    const next = presenter.queue[0];
+    if (next) presenter.timer = setTimeout(drain,
+      Math.max(1, Math.min(250, (next.sendTimeUs-current.sendTimeUs)/1000)));
+  };
+  presenter.timer = setTimeout(drain, SERIAL_PRESENTATION_BUFFER_MS);
+}
+
 // ═══════════════════════════════════════════════════
 // WEBSOCKET
 // ═══════════════════════════════════════════════════
@@ -806,16 +845,7 @@ ws.onmessage = event => {
   }
 
   if (data.type === 'sample_batch' && Array.isArray(data.streams)) {
-    data.streams.forEach(stream => {
-      const latest = stream.samples?.[stream.samples.length - 1];
-      if (!latest) return;
-      handleIncomingSignal({
-        type: 'osc', device: stream.device,
-        name: stream.name, param: stream.param, unit: stream.unit,
-        sequence: latest[0], timeUs: latest[1], value: latest[2],
-        source: data.source, enabled: true
-      });
-    });
+    data.transport === 'usb' ? queueSerialBatch(data) : presentSampleBatch(data);
   }
 };
 
