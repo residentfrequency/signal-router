@@ -607,9 +607,7 @@ function ensureRow(data) {
   const defaultMin = isAudio ? '' : assign.min ?? (data.type === 'midi' ? 0   : data.min ?? 0);
   const defaultMax = isAudio ? '' : assign.max ?? (data.type === 'midi' ? 127 : data.max ?? 1);
   const disabled = isAudio ? 'disabled' : '';
-  const viewHref = isAudio
-    ? `/pcm/?device=${encodeURIComponent(key)}`
-    : `/visualizer/?device=${encodeURIComponent(key)}`;
+  const viewHref = `/visualizer/?device=${encodeURIComponent(key)}`;
 
   const row  = table.insertRow();
 
