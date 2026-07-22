@@ -16,6 +16,7 @@ body {
 h1 { font-size: 1em; letter-spacing: 0.2em; opacity: 0.5; margin-bottom: 0.5em; }
 h2 { font-size: 0.75em; letter-spacing: 0.15em; opacity: 0.4; margin: 1.5em 0 0.5em; }
 h3 { font-size: 0.7em; letter-spacing: 0.1em; opacity: 0.3; margin: 1em 0 0.3em; }
+h3 a { color: inherit; text-decoration: underline; text-underline-offset: 0.2em; }
 .info-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -248,6 +249,7 @@ let midiAccess = null;
 let smoothed   = {};
 let MY_IP      = null;
 const midiOutputOpening = new WeakMap();
+const sourceMetadata = new Map();
 
 const portState = loadPortState();
 
@@ -578,6 +580,7 @@ function ensureSection(source) {
     `;
     section.appendChild(table);
     document.getElementById('signals-container').appendChild(section);
+    renderSourceHeading(source);
   }
   return document.getElementById(`signals-${source.replace(/\W+/g, '-')}`);
 }
@@ -744,6 +747,11 @@ ws.onerror = () => setStatus('ws-status', 'error', false);
 ws.onmessage = event => {
   const data = JSON.parse(event.data);
 
+  if (data.type === 'source_info' && data.ip && data.name) {
+    sourceMetadata.set(data.ip, data);
+    renderSourceHeading(data.ip);
+  }
+
   if (data.type === 'server_info') {
     document.getElementById('server-name').textContent = `${data.hostname} (${data.platform})`;
     document.getElementById('server-wifi').textContent =
@@ -815,8 +823,22 @@ ws.onmessage = event => {
 // SECTION HEADING UPDATE
 // ═══════════════════════════════════════════════════
 
+function renderSourceHeading(ip) {
+  const info = sourceMetadata.get(ip);
+  if (!info) return false;
+  const sectionId = `section-${ip.replace(/\W+/g, '-')}`;
+  const h3 = document.getElementById(`heading-${sectionId}`);
+  if (!h3) return false;
+  const link = document.createElement('a');
+  link.href = info.dashboard;
+  link.textContent = info.name;
+  h3.replaceChildren(link, document.createTextNode(` · ${ip}`));
+  return true;
+}
+
 function updateSectionHeading(clientInfo) {
   const { ip, os: clientOs, connType, tabCount, oscReceive } = clientInfo;
+  if (renderSourceHeading(ip)) return;
   const sectionId = `section-${ip.replace(/\W+/g, '-')}`;
   const h3 = document.getElementById(`heading-${sectionId}`);
   if (!h3) return;

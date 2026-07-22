@@ -300,7 +300,7 @@ function decodeScalarBatch(messages, senderIp) {
       }
     }
     if (samples.length > 0) {
-      sourceNames.set(senderIp, name);
+      registerSource(senderIp, name);
       streams.push({ device: `osc/${name}/${param}`, name, param, unit, samples });
     }
   }
@@ -310,6 +310,17 @@ function decodeScalarBatch(messages, senderIp) {
     type: 'sample_batch', source: senderIp,
     packetSequence, sendTimeUs, streams
   };
+}
+
+function sourceInfo(ip, name) {
+  return { type: 'source_info', ip, name, dashboard: `/${encodeURIComponent(name)}/` };
+}
+
+function registerSource(ip, name) {
+  if (!ip || typeof name !== 'string' || !name) return;
+  const previous = sourceNames.get(ip);
+  sourceNames.set(ip, name);
+  if (previous !== name) broadcast(sourceInfo(ip, name));
 }
 
 // ─── OSC inbound listener ─────────────────────────────────────────────────────
@@ -347,6 +358,7 @@ function routeOSCMessage(msg, senderIp) {
     const min   = msg.args[1] ?? undefined;
     const max   = msg.args[2] ?? undefined;
     const key   = `osc/${name}/${param}`;
+    registerSource(senderIp, name);
 
     const signal = {
       type: 'osc',
@@ -636,6 +648,7 @@ wss.on('connection', (ws, req) => {
     networkSsid: net.ssid
   }));
   ws.send(JSON.stringify({ type: 'state', state }));
+  for (const [ip, name] of sourceNames) ws.send(JSON.stringify(sourceInfo(ip, name)));
   for (const capability of audioCapabilities.values()) ws.send(JSON.stringify(capability));
   ws.send(JSON.stringify({
     type: 'client_info',
