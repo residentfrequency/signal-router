@@ -43,6 +43,8 @@ test('controls follow the active visualization', () => {
   assert.match(html, /class="spectrogram-control"><input id="smooth"/);
   assert.match(html, /function updateControlVisibility\(\)/);
   assert.doesNotMatch(html, /id="fps"/);
+  assert.match(html, /frequencyMode='log'/);
+  assert.match(html, />frequency: log<\/button>/);
 });
 
 test('spectrum cursor reports chart coordinates on both axes', () => {

@@ -9,7 +9,7 @@
 <label>buffer <input id="bufferControl" type="range" min="0" max="4" value="2"><span id="bufferValue">1 s</span></label>
 <label>gain <input id="gainControl" type="range" min="-6" max="15" value="2"><span id="gainValue">4×</span></label>
 </div><div class="controls view-controls">
-<button class="view active" data-view="wave">waveform</button><button class="view" data-view="spectrum">spectrum</button><button class="view" data-view="spectrogram">spectrogram</button><button id="frequencyScale" class="spectral-control">frequency: expanded</button>
+<button class="view active" data-view="wave">waveform</button><button class="view" data-view="spectrum">spectrum</button><button class="view" data-view="spectrogram">spectrogram</button><button id="frequencyScale" class="spectral-control">frequency: log</button>
 <label class="wave-control">window <input id="windowControl" type="range" min="0" max="15" step="1" value="5"><span id="windowValue">0.043 s</span></label>
 <label class="spectral-control">FFT <input id="fftPower" type="range" min="7" max="14" value="11"><span id="fftValue">2048</span></label>
 <label class="spectral-control">Welch <input id="welchControl" type="range" min="0" max="4" value="2"><span id="welchValue">4</span></label>
@@ -22,7 +22,7 @@ const params=new URLSearchParams(location.search),device=params.get('device')||'
 const canvas=document.getElementById('canvas'),ctx=canvas.getContext('2d'),spectro=document.createElement('canvas'),sctx=spectro.getContext('2d');
 const windows=[.001,.002,.005,.01,.02,.043,.05,.1,.25,.5,1,2,5,10,30,60],aggregates=[0,4,10,20,50,100,250,500,1000],buffers=[.25,.5,1,2,5];
 const welchSegments=[1,2,4,8,16];
-let view='wave',windowSeconds=.043,frequencyMode='expanded',spectralMode='raw',lastDraw=0,lastSpectro=0,unit='',sourceRate=0,spectralRate=0,lastSampleTime=null,lastArrival=0,maxArrival=0,missingCount=0,lastSequence=null,pcmSampleSequence=0,waveHover=[],lastSpectrum=null,scalarFullScale=0;
+let view='wave',windowSeconds=.043,frequencyMode='log',spectralMode='raw',lastDraw=0,lastSpectro=0,unit='',sourceRate=0,spectralRate=0,lastSampleTime=null,lastArrival=0,maxArrival=0,missingCount=0,lastSequence=null,pcmSampleSequence=0,waveHover=[],lastSpectrum=null,scalarFullScale=0;
 if(derivedMatch){windowSeconds=2;windowControl.value=11;windowValue.textContent='2 s'}
 
 class ChunkRing{
