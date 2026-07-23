@@ -45,8 +45,8 @@ test('controls follow the active visualization', () => {
   assert.doesNotMatch(html, /id="fps"/);
 });
 
-test('spectrum cursor respects the displayed axis limits', () => {
+test('spectrum cursor reports chart coordinates on both axes', () => {
   const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
-  assert.match(html, /db<=-80\?'≤−80 dB':`\$\{db\.toFixed\(1\)\} dB`/);
-  assert.match(html, /best\.power>=8\?'≥8×':best\.power<=\.5\?'≤0\.5×'/);
+  assert.match(html, /\$\{hz\.toFixed\(3\)\} Hz · \$\{\(-80\*ny\)\.toFixed\(1\)\} dB/);
+  assert.match(html, /const ratio=2\*\*\(3-4\*ny\)/);
 });
