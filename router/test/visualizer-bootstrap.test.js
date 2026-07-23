@@ -25,3 +25,10 @@ test('spectral views start progressively and spectrogram cursor uses both axes',
   assert.match(html, /position=view==='spectrogram'\?1-ny:nx/);
   assert.match(html, /rect\.width-x\)\/30/);
 });
+
+test('filtered spectrogram uses a fixed background-relative color scale', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /spectralMode==='filtered'\?Math\.max\(0,Math\.min\(1,\(Math\.log2/);
+  assert.match(html, /color 0\.5× · 1× · 2× · 4× · 8×\+/);
+  assert.match(html, /v=spectrogramLevel\(value,peak\)\*255/);
+});
