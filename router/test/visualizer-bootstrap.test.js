@@ -9,3 +9,11 @@ test('visualizer starts its animation loop', () => {
   assert.equal(calls.length, 2, 'render must schedule its successor and receive one initial frame');
   assert.match(html, /}\s*requestAnimationFrame\(render\);\s*<\/script>/);
 });
+
+test('PCM and scalar waveforms share gain and the Web Audio analyser', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /visualGain=gainAmount\(\)/);
+  assert.match(html, /audioOn&&waveformAnalyser&&windowSeconds\*audioCtx\.sampleRate<=32768\?drawPlaybackWaveform\(\):drawSeries\(windowSeconds\)/);
+  assert.doesNotMatch(html, /isPcm&&audioOn&&waveformAnalyser/);
+  assert.match(html, /normalizationNode=audioCtx\.createGain\(\)/);
+});
