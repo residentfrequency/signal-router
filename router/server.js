@@ -522,8 +522,8 @@ function pcmSourceIp(device) {
 function updatePcmSource(device) {
   const ip = pcmSourceIp(device);
   if (!ip) return;
-  const enabled = [...wss.clients].some(client =>
-    client.readyState === 1 && client.pcmSubscriptions?.has(device));
+  const enabled = [...wss.clients].some(client => client.readyState === 1 &&
+    (client.pcmSubscriptions?.has(device) || client.pcmAnalysisSubscriptions?.has(device)));
   const usb = ip === '192.168.0.32' && fs.existsSync(PCM_USB_DEVICE);
   if (usb) {
     sendIndoorUsbCommand(enabled ? 'INP1' : 'INP0');
@@ -821,6 +821,7 @@ wss.on('connection', (ws, req) => {
   if (!connectionsByIp.has(clientIp)) connectionsByIp.set(clientIp, new Set());
   connectionsByIp.get(clientIp).add(ws);
   ws.pcmSubscriptions = new Set();
+  ws.pcmAnalysisSubscriptions = new Set();
 
   const net = getNetworkMode();
   ws.send(JSON.stringify({
@@ -870,6 +871,14 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
+      if (data.type === 'pcm_analysis_subscribe' && typeof data.device === 'string') {
+        data.enabled === false
+          ? ws.pcmAnalysisSubscriptions.delete(data.device)
+          : ws.pcmAnalysisSubscriptions.add(data.device);
+        updatePcmSource(data.device);
+        return;
+      }
+
       if (data.type === 'midi') {
         // attach source IP so client can group by section
         data.source = clientIp;
@@ -901,8 +910,9 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    const pcmDevices = [...ws.pcmSubscriptions];
+    const pcmDevices = new Set([...ws.pcmSubscriptions, ...ws.pcmAnalysisSubscriptions]);
     ws.pcmSubscriptions.clear();
+    ws.pcmAnalysisSubscriptions.clear();
     for (const device of pcmDevices) updatePcmSource(device);
     connectionsByIp.get(clientIp)?.delete(ws);
     if (connectionsByIp.get(clientIp)?.size === 0) {
