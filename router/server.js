@@ -784,7 +784,7 @@ function consumeUsbBytes(pending, chunk, source) {
 function openPcmUsb() {
   if (pcmUsbStream || !fs.existsSync(PCM_USB_DEVICE)) return;
   try {
-    execSync(`stty -F '${PCM_USB_DEVICE}' 115200 raw -echo`);
+    execSync(`stty -F '${PCM_USB_DEVICE}' 921600 raw -echo`);
     pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE);
     pcmUsbStream.on('data', chunk => {
       pcmUsbPending = consumeUsbBytes(pcmUsbPending, chunk, '192.168.0.32');

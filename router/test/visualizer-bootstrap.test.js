@@ -61,3 +61,11 @@ test('raw spectra use stable full-scale references', () => {
   assert.match(html, /dBFS-equivalent/);
   assert.match(html, /localStorage\.setItem\(`rf\.scalarFullScale\.\$\{device\}`/);
 });
+
+test('spectrogram columns advance on source time rather than animation frames', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /lastValuesBefore\(wanted,endTime\)/);
+  assert.match(html, /const intervalUs=1e6\/30,latest=ring\.latestTime/);
+  assert.match(html, /const historical=i===columns-1\?s:fftData\(lastSpectro\)/);
+  assert.doesNotMatch(html, /performance\.now\(\)-lastSpectro/);
+});
