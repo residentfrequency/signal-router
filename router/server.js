@@ -153,6 +153,7 @@ require('dotenv').config();
 const state = { distance: 0, rate: 0 };
 const sourceNames = new Map();
 const audioCapabilities = new Map();
+let lastIndoorUsbScalarAt = 0;
 const indoorSerialPacer = new SerialBatchPacer(batch =>
   broadcastSampleBatch(batch, buildScalarBatchOsc(batch)));
 
@@ -409,6 +410,8 @@ oscInSocket.on('message', (buf, rinfo) => {
   const messages = parseOSCPacket(buf);
   const scalarBatch = decodeScalarBatch(messages, senderIp);
   if (scalarBatch) {
+    if (scalarBatch.streams.some(stream => stream.name === 'indoor-sky') &&
+        Date.now() - lastIndoorUsbScalarAt < 5000) return;
     broadcastSampleBatch(scalarBatch, buf);
     for (const stream of scalarBatch.streams) {
       if (stream.param === 'rms') registerAudioCapability(scalarBatch.source, stream.name);
@@ -657,6 +660,7 @@ function handleIndoorScalarPacket(packet, source) {
   }
   const populated = streams.filter(stream => stream.samples.length);
   if (!populated.length) return;
+  lastIndoorUsbScalarAt = Date.now();
   registerSource(source, 'indoor-sky');
   const batch = { type: 'sample_batch', transport: 'usb', source, packetSequence, sendTimeUs, streams: populated };
   indoorSerialPacer.push(batch);
