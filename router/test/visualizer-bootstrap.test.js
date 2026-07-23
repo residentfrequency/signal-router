@@ -35,9 +35,18 @@ test('filtered spectrogram uses a fixed background-relative color scale', () => 
 
 test('controls follow the active visualization', () => {
   const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /\[hidden\]\{display:none!important\}/);
+  assert.match(html, /class="controls global-controls"/);
+  assert.match(html, /class="controls view-controls"/);
   assert.match(html, /class="wave-control">window/);
   assert.match(html, /class="spectral-control">FFT/);
   assert.match(html, /class="spectrogram-control"><input id="smooth"/);
   assert.match(html, /function updateControlVisibility\(\)/);
   assert.doesNotMatch(html, /id="fps"/);
+});
+
+test('spectrum cursor respects the displayed axis limits', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /db<=-80\?'≤−80 dB':`\$\{db\.toFixed\(1\)\} dB`/);
+  assert.match(html, /best\.power>=8\?'≥8×':best\.power<=\.5\?'≤0\.5×'/);
 });
