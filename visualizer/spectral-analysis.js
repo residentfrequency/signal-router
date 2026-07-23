@@ -48,10 +48,12 @@
     const power = new Float64Array(bins);
     const window = new Float64Array(segmentLength);
     let windowEnergy = 0;
+    let windowSum = 0;
     for (let i = 0; i < segmentLength; i++) {
       const w = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (segmentLength - 1));
       window[i] = w;
       windowEnergy += w * w;
+      windowSum += w;
     }
     for (let segment = 0; segment < count; segment++) {
       const offset = first + segment * hop;
@@ -77,6 +79,7 @@
       segmentCount: count,
       overlap,
       resolution: sampleRate / segmentLength,
+      fullScaleSinePsd: windowSum * windowSum / (2 * sampleRate * windowEnergy),
     };
   }
 

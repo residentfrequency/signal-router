@@ -80,6 +80,8 @@ test('PSD locates a known sinusoid', () => {
     if (spectrum.power[i] > spectrum.power[peak]) peak = i;
   }
   assert.equal(spectrum.frequency[peak], frequency);
+  const dbfs = 10 * Math.log10(spectrum.power[peak] / spectrum.fullScaleSinePsd);
+  assert.ok(Math.abs(dbfs) < 0.05, `full-scale sine ${dbfs} dBFS`);
 });
 
 test('spectral slope distinguishes white, pink, and brown noise', () => {

@@ -30,7 +30,7 @@ test('filtered spectrogram uses a fixed background-relative color scale', () => 
   const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
   assert.match(html, /if\(spectralMode==='filtered'\)return Math\.max\(0,Math\.min\(1,\(Math\.log2/);
   assert.match(html, /color 0\.5× · 1× · 2× · 4× · 8×\+/);
-  assert.match(html, /v=spectrogramLevel\(value,peak\)\*255/);
+  assert.match(html, /v=spectrogramLevel\(value,s\)\*255/);
 });
 
 test('controls follow the active visualization', () => {
@@ -49,6 +49,15 @@ test('controls follow the active visualization', () => {
 
 test('spectrum cursor reports chart coordinates on both axes', () => {
   const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
-  assert.match(html, /\$\{hz\.toFixed\(3\)\} Hz · \$\{\(-80\*ny\)\.toFixed\(1\)\} dB/);
+  assert.match(html, /\$\{hz\.toFixed\(3\)\} Hz · \$\{\(-100\*ny\)\.toFixed\(1\)\}/);
   assert.match(html, /const ratio=2\*\*\(3-4\*ny\)/);
+});
+
+test('raw spectra use stable full-scale references', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /referencePsd=psd\.fullScaleSinePsd\*amplitudeReference\*amplitudeReference/);
+  assert.match(html, /rawDb\(value,s\)\+100\)\/100/);
+  assert.match(html, /dBFS · full-scale sine/);
+  assert.match(html, /dBFS-equivalent/);
+  assert.match(html, /localStorage\.setItem\(`rf\.scalarFullScale\.\$\{device\}`/);
 });
