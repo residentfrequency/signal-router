@@ -28,7 +28,16 @@ test('spectral views start progressively and spectrogram cursor uses both axes',
 
 test('filtered spectrogram uses a fixed background-relative color scale', () => {
   const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
-  assert.match(html, /spectralMode==='filtered'\?Math\.max\(0,Math\.min\(1,\(Math\.log2/);
+  assert.match(html, /if\(spectralMode==='filtered'\)return Math\.max\(0,Math\.min\(1,\(Math\.log2/);
   assert.match(html, /color 0\.5× · 1× · 2× · 4× · 8×\+/);
   assert.match(html, /v=spectrogramLevel\(value,peak\)\*255/);
+});
+
+test('controls follow the active visualization', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /class="wave-control">window/);
+  assert.match(html, /class="spectral-control">FFT/);
+  assert.match(html, /class="spectrogram-control"><input id="smooth"/);
+  assert.match(html, /function updateControlVisibility\(\)/);
+  assert.doesNotMatch(html, /id="fps"/);
 });
