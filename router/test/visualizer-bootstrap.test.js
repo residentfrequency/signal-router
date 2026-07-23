@@ -17,3 +17,11 @@ test('PCM and scalar waveforms share gain and the Web Audio analyser', () => {
   assert.doesNotMatch(html, /isPcm&&audioOn&&waveformAnalyser/);
   assert.match(html, /normalizationNode=audioCtx\.createGain\(\)/);
 });
+
+test('spectral views start progressively and spectrogram cursor uses both axes', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(html, /ring\.sampleCount<32/);
+  assert.match(html, /while\(n\*2<=selected&&n\*2<=ring\.sampleCount\)n\*=2/);
+  assert.match(html, /position=view==='spectrogram'\?1-ny:nx/);
+  assert.match(html, /rect\.width-x\)\/30/);
+});
