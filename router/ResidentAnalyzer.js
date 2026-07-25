@@ -83,7 +83,8 @@ class ResidentAnalyzer {
     if (decimated.coverage < this.minCoverage) return this.#waiting('decimated-coverage', decimated.coverage);
     if (decimated.values.length < 8) return this.#waiting('window', decimated.coverage);
 
-    const cwt = computeCwt(decimated.values, {
+    const cwtValues = fillMissingLinear(decimated.values);
+    const cwt = computeCwt(cwtValues, {
       sampleRate: this.analysisSampleRate,
       minPeriodSeconds: this.minPeriodSeconds,
       maxPeriodSeconds: this.maxPeriodSeconds,
@@ -162,6 +163,37 @@ function lowPassDecimate(values, valid, factor, minValidFraction = 0.8) {
   };
 }
 
+function fillMissingLinear(values) {
+  const output = Float64Array.from(values);
+  let firstValid = -1;
+
+  for (let i = 0; i < output.length; i++) {
+    if (Number.isFinite(output[i])) {
+      firstValid = i;
+      break;
+    }
+  }
+  if (firstValid < 0) throw new TypeError('values must contain at least one finite number');
+
+  for (let i = 0; i < firstValid; i++) output[i] = output[firstValid];
+
+  let previousValid = firstValid;
+  for (let i = firstValid + 1; i < output.length; i++) {
+    if (!Number.isFinite(output[i])) continue;
+
+    const gap = i - previousValid;
+    if (gap > 1) {
+      const startValue = output[previousValid];
+      const step = (output[i] - startValue) / gap;
+      for (let j = 1; j < gap; j++) output[previousValid + j] = startValue + step * j;
+    }
+    previousValid = i;
+  }
+
+  for (let i = previousValid + 1; i < output.length; i++) output[i] = output[previousValid];
+  return output;
+}
+
 function selectCandidatePeaks(scales, {
   minCompletedCycles = 2,
   minExcessRatio = 2,
@@ -206,5 +238,6 @@ function selectCandidatePeaks(scales, {
 module.exports = {
   ResidentAnalyzer,
   lowPassDecimate,
+  fillMissingLinear,
   selectCandidatePeaks,
 };
