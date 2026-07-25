@@ -54,7 +54,10 @@ class ResidentAnalyzer {
     });
   }
 
-  analyze(streamBuffer, { endTimestampUs = streamBuffer?.lastTimestampUs } = {}) {
+  analyze(streamBuffer, {
+    endTimestampUs = streamBuffer?.lastTimestampUs,
+    interpolation = 'linear',
+  } = {}) {
     if (!streamBuffer || typeof streamBuffer.resample !== 'function') {
       throw new TypeError('streamBuffer must provide resample()');
     }
@@ -64,6 +67,7 @@ class ResidentAnalyzer {
       sampleRate: inputSampleRate,
       durationSeconds: this.windowSeconds,
       endTimestampUs,
+      interpolation,
     });
 
     if (input.values.length === 0) return this.#waiting('empty', input.coverage);
