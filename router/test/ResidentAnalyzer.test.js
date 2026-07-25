@@ -139,8 +139,9 @@ test('candidate selection enforces threshold, distance, and count', () => {
   const scales = [
     { frequencyHz: 1, periodSeconds: 1, recentPower: 5, backgroundPower: 1, excessRatio: 5, phase: 0, completedCycles: 10 },
     { frequencyHz: 0.9, periodSeconds: 1.11, recentPower: 4.5, backgroundPower: 1, excessRatio: 4.5, phase: 0, completedCycles: 10 },
+    { frequencyHz: 0.7, periodSeconds: 1.43, recentPower: 1.5, backgroundPower: 1, excessRatio: 1.5, phase: 0, completedCycles: 10 },
     { frequencyHz: 0.5, periodSeconds: 2, recentPower: 4, backgroundPower: 1, excessRatio: 4, phase: 0, completedCycles: 10 },
-    { frequencyHz: 0.25, periodSeconds: 4, recentPower: 1, backgroundPower: 1, excessRatio: 1, phase: 0, completedCycles: 10 },
+    { frequencyHz: 0.25, periodSeconds: 4, recentPower: 3, backgroundPower: 1, excessRatio: 3, phase: 0, completedCycles: 10 },
   ];
 
   const candidates = selectCandidatePeaks(scales, {
