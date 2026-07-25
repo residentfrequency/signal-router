@@ -115,7 +115,7 @@ class VoiceTracker {
 
     this.voices = this.voices.filter(voice => (
       voice.misses <= this.maxMisses
-      && (voice.active || voice.confidence > this.releaseConfidence)
+      && voice.confidence > 0
     ));
 
     return this.snapshot();
