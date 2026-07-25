@@ -58,6 +58,29 @@ test('boxcar decimation marks blocks invalid when coverage is inadequate', () =>
   assert.equal(result.coverage, 0.5);
 });
 
+test('forwards the requested interpolation mode to StreamBuffer', () => {
+  let receivedOptions = null;
+  const streamBuffer = {
+    lastTimestampUs: 5_000_000,
+    resample(options) {
+      receivedOptions = options;
+      return {
+        values: new Float64Array(0),
+        valid: new Uint8Array(0),
+        coverage: 0,
+      };
+    },
+  };
+  const analyzer = new ResidentAnalyzer();
+
+  const result = analyzer.analyze(streamBuffer, { interpolation: 'hold' });
+
+  assert.equal(receivedOptions.interpolation, 'hold');
+  assert.equal(receivedOptions.endTimestampUs, 5_000_000);
+  assert.equal(result.ready, false);
+  assert.equal(result.reason, 'empty');
+});
+
 test('waits when the requested analysis window has inadequate coverage', () => {
   const buffer = makeBuffer({
     durationSeconds: 20,
