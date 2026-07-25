@@ -35,19 +35,21 @@ class ResidentStreamRegistry {
     return this.streams.size;
   }
 
-  ingest(streamId, timestampUs, value, sequence = null) {
+  ingest(streamId, timestampUs, value, sequence = null, receivedAtUs = Date.now() * 1000) {
     if (typeof streamId !== 'string' || !streamId) throw new TypeError('streamId must be a non-empty string');
     timestampUs = Number(timestampUs);
     value = Number(value);
+    receivedAtUs = Number(receivedAtUs);
     if (!Number.isFinite(timestampUs) || !Number.isFinite(value)) return false;
 
     const entry = this.#entry(streamId);
     entry.buffer.push(timestampUs, value, sequence);
     entry.lastTimestampUs = Math.max(entry.lastTimestampUs ?? -Infinity, timestampUs);
+    if (Number.isFinite(receivedAtUs)) entry.lastReceivedAtUs = receivedAtUs;
     return true;
   }
 
-  ingestBatch(streamId, samples) {
+  ingestBatch(streamId, samples, receivedAtUs = Date.now() * 1000) {
     if (typeof streamId !== 'string' || !streamId) throw new TypeError('streamId must be a non-empty string');
     if (!Array.isArray(samples)) throw new TypeError('samples must be an array');
     const finite = samples.filter(sample => Array.isArray(sample)
@@ -58,13 +60,15 @@ class ResidentStreamRegistry {
     const entry = this.#entry(streamId);
     entry.buffer.pushBatch(finite);
     entry.lastTimestampUs = entry.buffer.lastTimestampUs;
+    receivedAtUs = Number(receivedAtUs);
+    if (Number.isFinite(receivedAtUs)) entry.lastReceivedAtUs = receivedAtUs;
     return finite.length;
   }
 
   analyzeAll({ nowTimestampUs = Date.now() * 1000 } = {}) {
     const messages = [];
     for (const [streamId, entry] of this.streams) {
-      if (nowTimestampUs - entry.lastTimestampUs > this.staleAfterUs) {
+      if (nowTimestampUs - entry.lastReceivedAtUs > this.staleAfterUs) {
         this.streams.delete(streamId);
         continue;
       }
@@ -111,6 +115,7 @@ class ResidentStreamRegistry {
         analyzer: this.createAnalyzer(this.analyzerOptions),
         tracker: this.createTracker(this.trackerOptions),
         lastTimestampUs: null,
+        lastReceivedAtUs: Date.now() * 1000,
       };
       this.streams.set(streamId, entry);
     }
