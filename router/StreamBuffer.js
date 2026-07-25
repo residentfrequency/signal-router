@@ -92,21 +92,25 @@ class StreamBuffer {
   /**
    * Return a regular time grid suitable for FFT/CWT analysis.
    *
-   * Values are linearly interpolated only when the surrounding raw samples are
-   * no farther apart than maxInterpolationGapSeconds. Larger transport gaps are
-   * represented as NaN with valid[i] = 0 so analysis code can reject or repair
-   * the window explicitly rather than inventing a long ramp.
+   * Linear interpolation is the default. Hold interpolation uses the most
+   * recent preceding raw value. Both modes reject intervals where surrounding
+   * raw samples are farther apart than maxInterpolationGapSeconds, representing
+   * those transport gaps as NaN with valid[i] = 0 rather than inventing data.
    */
   resample({
     sampleRate,
     durationSeconds = this.durationUs / 1e6,
     endTimestampUs = this.lastTimestampUs,
     maxInterpolationGapSeconds = this.maxInterpolationGapUs / 1e6,
+    interpolation = 'linear',
   } = {}) {
     if (!(sampleRate > 0)) throw new RangeError('sampleRate must be greater than zero');
     if (!(durationSeconds > 0)) throw new RangeError('durationSeconds must be greater than zero');
     if (!(maxInterpolationGapSeconds >= 0)) {
       throw new RangeError('maxInterpolationGapSeconds must be zero or greater');
+    }
+    if (interpolation !== 'linear' && interpolation !== 'hold') {
+      throw new RangeError("interpolation must be 'linear' or 'hold'");
     }
     if (!Number.isFinite(endTimestampUs) || this.samples.length === 0) {
       return StreamBuffer.emptySeries(sampleRate);
@@ -151,8 +155,11 @@ class StreamBuffer {
       if (!(gapUs > 0) || gapUs > maxGapUs) continue;
       if (timestampUs < leftSample.timestampUs || timestampUs > rightSample.timestampUs) continue;
 
-      const fraction = (timestampUs - leftSample.timestampUs) / gapUs;
-      values[i] = leftSample.value + fraction * (rightSample.value - leftSample.value);
+      values[i] = interpolation === 'hold'
+        ? leftSample.value
+        : leftSample.value
+          + ((timestampUs - leftSample.timestampUs) / gapUs)
+          * (rightSample.value - leftSample.value);
       valid[i] = 1;
     }
 
