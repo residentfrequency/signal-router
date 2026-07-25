@@ -97,7 +97,7 @@ test('ingests timestamped router batches', () => {
 
 test('removes streams after the configured inactive interval', () => {
   const { registry } = fakeRegistry({ staleAfterSeconds: 5 });
-  registry.ingest('osc/test', 1_000_000, 1);
+  registry.ingest('osc/test', 1_000_000, 1, null, 1_000_000);
 
   assert.deepEqual(registry.analyzeAll({ nowTimestampUs: 7_000_000 }), []);
   assert.equal(registry.size, 0);
