@@ -986,7 +986,7 @@ app.get('/api/status', (req, res) => res.json({ ok: true, hostname: os.hostname(
 
 // ─── Start server ─────────────────────────────────────────────────────────────
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Router running on port ${PORT}`);
   console.log(`OSC inbound on port ${OSC_IN_PORT} (all reachable senders)`);
