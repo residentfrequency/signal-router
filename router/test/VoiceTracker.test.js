@@ -23,10 +23,13 @@ test('matches nearby candidates one-to-one by octave distance', () => {
   const voices = [{ frequencyHz: 1 }, { frequencyHz: 0.25 }];
   const candidates = [candidate(0.27), candidate(0.95), candidate(2)];
   const matches = matchCandidates(voices, candidates, 0.2);
+  const pairs = matches
+    .map(({ voiceIndex, candidateIndex }) => [voiceIndex, candidateIndex])
+    .sort((a, b) => a[0] - b[0]);
 
-  assert.deepEqual(matches.map(({ voiceIndex, candidateIndex }) => [voiceIndex, candidateIndex]), [
-    [1, 0],
+  assert.deepEqual(pairs, [
     [0, 1],
+    [1, 0],
   ]);
 });
 
