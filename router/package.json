@@ -5,7 +5,8 @@
   "main": "index.js",
   "scripts": {
     "test": "node --test",
-    "resident-live": "node resident-live-controls.js"
+    "resident-live": "node resident-live-controls.js",
+    "modulation-spectrum": "node modulation-spectrum-demo.js"
   },
   "keywords": [],
   "author": "",
