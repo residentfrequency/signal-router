@@ -1,6 +1,6 @@
 'use strict';
 
-const { startResidentLive } = require('./resident-live');
+const zlib = require('zlib');
 
 const injectedScript = String.raw`
 <script>
@@ -139,21 +139,23 @@ const injectedScript = String.raw`
 })();
 </script>`;
 
-const instance = startResidentLive();
+const originalGunzipSync = zlib.gunzipSync;
+zlib.gunzipSync = function residentPageGunzip(buffer, options) {
+  const result = originalGunzipSync.call(this, buffer, options);
+  const isBuffer = Buffer.isBuffer(result);
+  const html = isBuffer ? result.toString('utf8') : String(result);
 
-instance.server.prependListener('request', (req, res) => {
-  const originalEnd = res.end.bind(res);
-  res.end = (chunk, encoding, callback) => {
-    const contentType = String(res.getHeader('content-type') || '');
-    if (contentType.includes('text/html') && chunk != null) {
-      let html = Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === 'string' ? encoding : 'utf8') : String(chunk);
-      if (!html.includes('resident-beat-range-panel')) {
-        if (html.includes('</body>')) html = html.replace('</body>', injectedScript + '\n</body>');
-        else html += injectedScript;
-        chunk = html;
-        res.removeHeader('content-length');
-      }
-    }
-    return originalEnd(chunk, encoding, callback);
-  };
-});
+  if (!html.includes('RESIDENT FREQUENCY VOICES') || html.includes('resident-beat-range-panel')) {
+    return result;
+  }
+
+  const injected = html.includes('</body>')
+    ? html.replace('</body>', injectedScript + '\n</body>')
+    : html + injectedScript;
+
+  console.log('Beat CC range controls injected into resident page');
+  return isBuffer ? Buffer.from(injected, 'utf8') : injected;
+};
+
+const { startResidentLive } = require('./resident-live');
+startResidentLive();
