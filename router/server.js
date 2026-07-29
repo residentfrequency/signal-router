@@ -325,10 +325,22 @@ function broadcastOSC(data) {
 
 // ─── WebSocket broadcast ──────────────────────────────────────────────────────
 
+const SCALAR_MAX_WS_BACKLOG = 512 * 1024;
+
+function sendBrowserMessage(client, json, applyBackpressure = false) {
+  if (client.readyState !== 1) return false;
+  if (applyBackpressure && client.bufferedAmount > SCALAR_MAX_WS_BACKLOG) {
+    client.scalarBackpressureDrops = (client.scalarBackpressureDrops || 0) + 1;
+    return false;
+  }
+  client.send(json);
+  return true;
+}
+
 function broadcast(data) {
   const json = JSON.stringify(data);
   wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(json);
+    sendBrowserMessage(client, json);
   });
   broadcastOSC(data);
 }
@@ -336,7 +348,7 @@ function broadcast(data) {
 function broadcastSignalBatch(signals) {
   const json = JSON.stringify({ type: 'signal_batch', signals });
   wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(json);
+    sendBrowserMessage(client, json, true);
   });
   for (const signal of signals) broadcastOSC(signal);
 }
@@ -344,7 +356,7 @@ function broadcastSignalBatch(signals) {
 function broadcastSampleBatch(batch, oscPacket) {
   const json = JSON.stringify(batch);
   wss.clients.forEach(client => {
-    if (client.readyState === 1) client.send(json);
+    sendBrowserMessage(client, json, true);
   });
   if (oscReceiveClients.size > 0) sendOSCPacketToClients(oscPacket);
   try { scSocket.send(oscPacket, 57110, '127.0.0.1'); } catch (e) {}
