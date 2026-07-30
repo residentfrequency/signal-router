@@ -1,5 +1,5 @@
 const express    = require('express');
-const { WebSocketServer } = require('ws');
+const { WebSocket, WebSocketServer } = require('ws');
 const https      = require('https');
 const http       = require('http');
 const fs         = require('fs');
@@ -10,6 +10,7 @@ const { execSync } = require('child_process');
 const { PcmAnalyzer } = require('./audio-analysis');
 const { decodeImaAdpcm } = require('./ima-adpcm');
 const { SerialBatchPacer } = require('./serial-batch-pacer');
+const { page: modulationSpectrumPage } = require('./modulation-spectrum-demo-v3');
 
 // ─── SSL ─────────────────────────────────────────────────────────────────────
 
@@ -829,6 +830,48 @@ setInterval(() => {
 
 const connectionsByIp = new Map();
 const clientMeta      = new Map();
+let residentBridge = null;
+let residentBridgeRetry = null;
+
+function residentSubscriberCount() {
+  let count = 0;
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN && client.residentSubscribed) count++;
+  }
+  return count;
+}
+
+function updateResidentBridge() {
+  const needed = residentSubscriberCount() > 0;
+  if (!needed) {
+    clearTimeout(residentBridgeRetry);
+    residentBridgeRetry = null;
+    if (residentBridge) {
+      const bridge = residentBridge;
+      residentBridge = null;
+      bridge.close();
+    }
+    return;
+  }
+  if (residentBridge &&
+      (residentBridge.readyState === WebSocket.OPEN ||
+       residentBridge.readyState === WebSocket.CONNECTING)) return;
+
+  residentBridge = new WebSocket('ws://127.0.0.1:3002');
+  residentBridge.on('message', raw => {
+    const message = raw.toString();
+    for (const client of wss.clients) {
+      if (client.residentSubscribed) sendBrowserMessage(client, message, true);
+    }
+  });
+  residentBridge.on('close', () => {
+    residentBridge = null;
+    if (residentSubscriberCount() > 0) {
+      residentBridgeRetry = setTimeout(updateResidentBridge, 2000);
+    }
+  });
+  residentBridge.on('error', () => {});
+}
 
 wss.on('connection', (ws, req) => {
   const rawIp    = (req.headers['x-forwarded-for'] || req.socket.remoteAddress).replace(/^::ffff:/, '');
@@ -838,6 +881,7 @@ wss.on('connection', (ws, req) => {
   connectionsByIp.get(clientIp).add(ws);
   ws.pcmSubscriptions = new Set();
   ws.pcmAnalysisSubscriptions = new Set();
+  ws.residentSubscribed = false;
 
   const net = getNetworkMode();
   ws.send(JSON.stringify({
@@ -865,6 +909,12 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (message) => {
     try {
       const data = JSON.parse(message.toString());
+
+      if (data.type === 'resident_subscribe') {
+        ws.residentSubscribed = data.enabled !== false;
+        updateResidentBridge();
+        return;
+      }
 
       if (data.type === 'osc_toggle_receive') {
         data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
@@ -935,6 +985,7 @@ wss.on('connection', (ws, req) => {
       connectionsByIp.delete(clientIp);
       oscReceiveClients.delete(clientIp);
     }
+    updateResidentBridge();
     broadcastClientStats();
   });
 });
@@ -995,6 +1046,29 @@ function getNetworkMode() {
 
 app.use(express.json());
 app.get('/api/status', (req, res) => res.json({ ok: true, hostname: os.hostname() }));
+app.get(/^\/resident$/, (req, res) => res.redirect(308, '/resident/'));
+app.get('/resident/', (req, res) => {
+  const request = http.get({
+    host: '127.0.0.1', port: 3002, path: '/resident/', timeout: 5000
+  }, response => {
+    const chunks = [];
+    response.on('data', chunk => chunks.push(chunk));
+    response.on('end', () => {
+      const html = Buffer.concat(chunks).toString('utf8').replace(
+        "const ws=new WebSocket('ws://'+location.host);ws.onopen=()=>status.textContent='live · '+location.host;",
+        "const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);ws.onopen=()=>{ws.send(JSON.stringify({type:'resident_subscribe',enabled:true}));status.textContent='live · '+location.host};"
+      );
+      res.status(response.statusCode || 200).type('text/html').send(html);
+    });
+  });
+  request.on('timeout', () => request.destroy(new Error('resident sidecar timeout')));
+  request.on('error', error => res.status(503).type('text/plain')
+    .send(`resident analysis unavailable: ${error.message}`));
+});
+app.get(/^\/modulation-spectrum$/, (req, res) =>
+  res.redirect(308, '/modulation-spectrum/'));
+app.get('/modulation-spectrum/', (req, res) =>
+  res.type('text/html').send(modulationSpectrumPage()));
 
 // ─── Start server ─────────────────────────────────────────────────────────────
 

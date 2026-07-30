@@ -37,6 +37,8 @@ h3 a { color: inherit; text-decoration: underline; text-underline-offset: 0.2em;
   font-size: 0.7em;
   margin-bottom: 1em;
 }
+.status-bar a { color: #00ff88; text-decoration: none; opacity: 0.65; }
+.status-bar a:hover { opacity: 1; text-decoration: underline; }
 .connected    { color: #00ff88; }
 .disconnected { color: #ff4444; }
 .neutral      { opacity: 0.4; }
@@ -118,6 +120,8 @@ hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
   <span class="neutral" id="ws-status">connecting...</span>
   <span class="neutral" id="midi-status">WebMIDI not initialized</span>
   <span class="neutral" id="osc-status">OSC :9000</span>
+  <a href="/resident/">resident analysis</a>
+  <a href="/modulation-spectrum/">modulation spectrum</a>
 </div>
 
 <div class="info-grid">
