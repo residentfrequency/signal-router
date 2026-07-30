@@ -23,6 +23,6 @@ test('main HTTPS server exposes and subscribes both analysis pages', () => {
   const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
   assert.match(source, /app\.get\('\/resident\/'/);
   assert.match(source, /type:'resident_subscribe',enabled:true/);
-  assert.match(source, /new WebSocket\('ws:\/\/127\.0\.0\.1:3002'\)/);
+  assert.match(source, /new WebSocket\(`ws:\/\/127\.0\.0\.1:\$\{RESIDENT_PORT\}`\)/);
   assert.match(source, /app\.get\('\/modulation-spectrum\/'/);
 });

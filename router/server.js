@@ -832,6 +832,7 @@ const connectionsByIp = new Map();
 const clientMeta      = new Map();
 let residentBridge = null;
 let residentBridgeRetry = null;
+const RESIDENT_PORT = Number(process.env.RESIDENT_PORT || 3001);
 
 function residentSubscriberCount() {
   let count = 0;
@@ -857,7 +858,7 @@ function updateResidentBridge() {
       (residentBridge.readyState === WebSocket.OPEN ||
        residentBridge.readyState === WebSocket.CONNECTING)) return;
 
-  residentBridge = new WebSocket('ws://127.0.0.1:3002');
+  residentBridge = new WebSocket(`ws://127.0.0.1:${RESIDENT_PORT}`);
   residentBridge.on('message', raw => {
     const message = raw.toString();
     for (const client of wss.clients) {
@@ -1049,7 +1050,7 @@ app.get('/api/status', (req, res) => res.json({ ok: true, hostname: os.hostname(
 app.get(/^\/resident$/, (req, res) => res.redirect(308, '/resident/'));
 app.get('/resident/', (req, res) => {
   const request = http.get({
-    host: '127.0.0.1', port: 3002, path: '/resident/', timeout: 5000
+    host: '127.0.0.1', port: RESIDENT_PORT, path: '/resident/', timeout: 5000
   }, response => {
     const chunks = [];
     response.on('data', chunk => chunks.push(chunk));
