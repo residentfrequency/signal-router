@@ -842,7 +842,8 @@ function openPcmUsb() {
   if (pcmUsbStream || !fs.existsSync(PCM_USB_DEVICE)) return;
   try {
     execSync(`stty -F '${PCM_USB_DEVICE}' 921600 raw -echo`);
-    pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE);
+    const descriptor = fs.openSync(PCM_USB_DEVICE, 'r+');
+    pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE, { fd: descriptor, autoClose: true });
     pcmUsbStream.on('data', chunk => {
       pcmUsbPending = consumeUsbBytes(pcmUsbPending, chunk, '192.168.0.32');
     });
