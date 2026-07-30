@@ -21,14 +21,26 @@ const injectedScript = String.raw`
 
     panel = document.createElement('section');
     panel.id = 'resident-beat-range-panel';
+    panel.className = 'panel global-output-panel';
     panel.style.margin = '12px 0';
     panel.style.padding = '12px';
     panel.style.border = '1px solid rgba(127,127,127,.35)';
     panel.style.borderRadius = '8px';
     panel.style.background = 'rgba(127,127,127,.08)';
-    panel.innerHTML = '<div style="font-weight:700;margin-bottom:4px">BEAT CC RANGE</div>' +
-      '<div style="font-size:12px;opacity:.75;margin-bottom:10px">Width expands or compresses beat motion; center moves its midpoint.</div>' +
-      '<div id="resident-beat-range-rows"><div style="font-size:12px;opacity:.65">Enable MIDI and send a beat CC to create a route row.</div></div>';
+    panel.innerHTML = '<div id="resident-global-output-controls"></div>' +
+      '<div id="resident-beat-range-rows"></div>';
+
+    const controls = panel.querySelector('#resident-global-output-controls');
+    const midiPanel = document.querySelector('.midi-panel');
+    const globalBeatPanel = document.querySelector('body > .beat-strip');
+    if (midiPanel) {
+      midiPanel.classList.remove('panel');
+      controls.appendChild(midiPanel);
+    }
+    if (globalBeatPanel) {
+      globalBeatPanel.classList.remove('panel');
+      controls.appendChild(globalBeatPanel);
+    }
 
     const mount = document.querySelector('main, #app') || document.body;
     if (mount.firstChild) mount.insertBefore(panel, mount.firstChild);
@@ -43,7 +55,6 @@ const injectedScript = String.raw`
 
     const panel = ensurePanel();
     const rows = panel.querySelector('#resident-beat-range-rows');
-    if (rows.children.length === 1 && !rows.firstElementChild.dataset.beatRangeKey) rows.textContent = '';
 
     row = document.createElement('div');
     row.dataset.beatRangeKey = key;
@@ -129,13 +140,98 @@ const injectedScript = String.raw`
     return access;
   }
 
+  const availabilityStyle = document.createElement('style');
+  availabilityStyle.textContent = [
+    '.global-output-panel .midi-panel,.global-output-panel .beat-strip{border:0;margin:0;padding:8px 0;background:transparent}',
+    '.global-output-panel .beat-strip{border-top:1px solid rgba(127,127,127,.2)}',
+    '.global-output-panel #resident-beat-range-rows:not(:empty){border-top:1px solid rgba(127,127,127,.2);margin-top:6px;padding-top:4px}',
+    '.availability-disabled{opacity:.35}',
+    'button:disabled,input:disabled,select:disabled{cursor:not-allowed;opacity:.35}',
+    'tr.availability-disabled td{color:inherit}',
+  ].join('');
+  document.head.appendChild(availabilityStyle);
+
+  const unfilteredActiveVoicesForDevice = activeVoicesForDevice;
+  activeVoicesForDevice = name => unfilteredActiveVoicesForDevice(name)
+    .filter(voice => messages.get(voice.streamId)?.ready === true);
+
+  const readyActiveVoicesForDevice = activeVoicesForDevice;
+  const unfilteredSyncAudio = syncAudio;
+  syncAudio = function syncReadyAudio() {
+    const previous = activeVoicesForDevice;
+    activeVoicesForDevice = name => readyActiveVoicesForDevice(name)
+      .filter(voice => streamSettings(voice.streamId).noteEnabled);
+    try {
+      return unfilteredSyncAudio();
+    } finally {
+      activeVoicesForDevice = previous;
+    }
+  };
+
+  function updateOutputAvailability() {
+    const anyReady = [...messages.values()].some(message => message.ready === true);
+    midiEnable.disabled = !anyReady;
+    midiEnable.closest('.midi-panel')?.classList.toggle('availability-disabled', !anyReady);
+    globalBeatEnabled.disabled = !anyReady;
+    globalBeatChannel.disabled = !anyReady;
+    globalBeatCc.disabled = !anyReady;
+    globalBeatEnabled.closest('.beat-strip')?.classList.toggle('availability-disabled', !anyReady);
+
+    if (!anyReady && midiEnabled) {
+      panicMidi();
+      midiEnabled = false;
+      midiEnable.textContent = 'enable MIDI';
+      midiEnable.classList.remove('enabled');
+      updateMidiStatus();
+    }
+
+    for (const group of groups.values()) {
+      const deviceReady = [...messages.entries()]
+        .some(([id, message]) => deviceName(id) === group.name && message.ready === true);
+      group.button.disabled = !deviceReady;
+      if (!deviceReady && group.enabled) {
+        group.enabled = false;
+        group.button.textContent = 'start audio';
+        group.button.classList.remove('playing');
+        syncAudio();
+      }
+      const deviceBeatControls = group.section.querySelectorAll(
+        '.device-beat-enabled,.device-beat-channel,.device-beat-cc',
+      );
+      deviceBeatControls.forEach(control => { control.disabled = !deviceReady; });
+      group.section.querySelector('.beat-strip')
+        ?.classList.toggle('availability-disabled', !deviceReady);
+
+      for (const [id, row] of group.rows) {
+        const ready = messages.get(id)?.ready === true;
+        row.classList.toggle('availability-disabled', !ready);
+        row.querySelectorAll('input,select').forEach(control => {
+          control.disabled = !ready;
+        });
+      }
+    }
+  }
+
+  const unfilteredRender = render;
+  render = function renderWithAvailability(message) {
+    unfilteredRender(message);
+    updateOutputAvailability();
+  };
+
   const originalRequestMIDIAccess = navigator.requestMIDIAccess && navigator.requestMIDIAccess.bind(navigator);
   if (originalRequestMIDIAccess) {
     navigator.requestMIDIAccess = (...args) => originalRequestMIDIAccess(...args).then(wrapAccess);
   }
 
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ensurePanel, { once: true });
-  else ensurePanel();
+  function initializeResidentControls() {
+    ensurePanel();
+    updateOutputAvailability();
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeResidentControls, { once: true });
+  } else {
+    initializeResidentControls();
+  }
 })();
 </script>`;
 
