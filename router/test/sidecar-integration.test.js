@@ -16,6 +16,7 @@ test('modulation spectrum page uses the serving HTTPS origin and PCM subscriptio
 test('resident sidecar stays local and skips analysis without browser clients', () => {
   const source = fs.readFileSync(path.join(__dirname, '../resident-live.js'), 'utf8');
   assert.match(source, /if \(wss\.clients\.size === 0\) return;/);
+  assert.match(source, /if \(wss\.clients\.size === 0 \|\| routerSocket\) return;/);
   assert.match(source, /server\.listen\(port, '127\.0\.0\.1'/);
 });
 

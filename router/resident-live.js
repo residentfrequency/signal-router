@@ -56,16 +56,30 @@ function startResidentLive({ routerUrl = ROUTER_URL, port = PORT, analysisInterv
     res.end(page());
   });
   const wss = new WebSocketServer({ server });
-  wss.on('connection', client => { for (const message of latest.values()) client.send(JSON.stringify(message)); });
   let routerSocket;
   let reconnectTimer;
   const connect = () => {
+    if (wss.clients.size === 0 || routerSocket) return;
     routerSocket = new WebSocket(routerUrl, { rejectUnauthorized: false });
     routerSocket.on('message', raw => { try { ingestRouterMessage(registry, JSON.parse(raw.toString())); } catch {} });
-    routerSocket.on('close', () => { reconnectTimer = setTimeout(connect, 2000); });
+    routerSocket.on('close', () => {
+      routerSocket = null;
+      if (wss.clients.size > 0) reconnectTimer = setTimeout(connect, 2000);
+    });
     routerSocket.on('error', () => {});
   };
-  connect();
+  wss.on('connection', client => {
+    for (const message of latest.values()) client.send(JSON.stringify(message));
+    connect();
+    client.on('close', () => {
+      if (wss.clients.size !== 0) return;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      const socket = routerSocket;
+      routerSocket = null;
+      socket?.close();
+    });
+  });
   const analysisTimer = setInterval(() => {
     if (wss.clients.size === 0) return;
     for (const message of registry.analyzeAll()) {
