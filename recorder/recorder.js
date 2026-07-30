@@ -317,13 +317,19 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:6px;bord
 <div class="card grid" id="summary"></div>
 <div class="card"><table><thead><tr><th>STREAM</th><th>SAMPLES</th><th>MISSING</th><th>DUPLICATES</th><th>LAST VALUE</th></tr></thead><tbody id="streams"></tbody></table></div>
 <script>
+const startButton=document.getElementById('start');
+const stopButton=document.getElementById('stop');
+const stateLabel=document.getElementById('state');
+const summaryElement=document.getElementById('summary');
+const streamsElement=document.getElementById('streams');
 const f=n=>{if(!Number.isFinite(n))return'—';const u=['B','KiB','MiB','GiB','TiB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return n.toFixed(i?2:0)+' '+u[i]};
 async function command(name){await fetch('/api/'+name,{method:'POST'});await update()}
-start.onclick=()=>command('start');stop.onclick=()=>command('stop');
-async function update(){const s=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());state.textContent=s.recording?'● RECORDING':s.stopReason||'stopped';state.className=s.recording?'good':'';
-start.disabled=s.recording;stop.disabled=!s.recording;const cells=[['Router',s.connected?'connected':'disconnected'],['Session samples',s.sessionSamples.toLocaleString()],['Session size',f(s.sessionBytes)],['Recorded storage',f(s.diskBytes)+' / '+f(s.maxBytes)],['Free disk',f(s.freeBytes)],['Files',s.files+' finalized · '+s.openFiles+' open'],['Started',s.startedAt||'—'],['Last message',s.lastMessageAt||'—'],['Directory',s.dataDirectory],['Error',s.error||'none']];
-summary.innerHTML=cells.map(x=>'<div><div class="label">'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');
-streams.innerHTML=Object.entries(s.streams).sort().map(([k,v])=>'<tr><td>'+k+'</td><td>'+v.samples.toLocaleString()+'</td><td>'+v.missing.toLocaleString()+'</td><td>'+v.duplicates.toLocaleString()+'</td><td>'+String(v.lastValue??'—')+'</td></tr>').join('')}
+startButton.addEventListener('click',()=>command('start'));
+stopButton.addEventListener('click',()=>command('stop'));
+async function update(){const s=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());stateLabel.textContent=s.recording?'● RECORDING':s.stopReason||'stopped';stateLabel.className=s.recording?'good':'';
+startButton.disabled=s.recording;stopButton.disabled=!s.recording;const cells=[['Router',s.connected?'connected':'disconnected'],['Session samples',s.sessionSamples.toLocaleString()],['Session size',f(s.sessionBytes)],['Recorded storage',f(s.diskBytes)+' / '+f(s.maxBytes)],['Free disk',f(s.freeBytes)],['Files',s.files+' finalized · '+s.openFiles+' open'],['Started',s.startedAt||'—'],['Last message',s.lastMessageAt||'—'],['Directory',s.dataDirectory],['Error',s.error||'none']];
+summaryElement.innerHTML=cells.map(x=>'<div><div class="label">'+x[0]+'</div><div class="value">'+x[1]+'</div></div>').join('');
+streamsElement.innerHTML=Object.entries(s.streams).sort().map(([k,v])=>'<tr><td>'+k+'</td><td>'+v.samples.toLocaleString()+'</td><td>'+v.missing.toLocaleString()+'</td><td>'+v.duplicates.toLocaleString()+'</td><td>'+String(v.lastValue??'—')+'</td></tr>').join('')}
 update();setInterval(update,1000);
 </script>`;
 

@@ -31,4 +31,7 @@ test('exposes local-only recording controls', () => {
   assert.match(source, /POST' && request\.url === '\/api\/start'/);
   assert.match(source, /POST' && request\.url === '\/api\/stop'/);
   assert.match(source, /server\.listen\(PORT, '127\.0\.0\.1'/);
+  assert.match(source, /const stopButton=document\.getElementById\('stop'\)/);
+  assert.match(source, /stopButton\.addEventListener\('click'/);
+  assert.doesNotMatch(source, /stop\.onclick/);
 });
