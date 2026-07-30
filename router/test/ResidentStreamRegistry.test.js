@@ -116,3 +116,10 @@ test('removes streams after the configured inactive interval', () => {
   assert.deepEqual(registry.analyzeAll({ nowTimestampUs: 7_000_000 }), []);
   assert.equal(registry.size, 0);
 });
+
+test('explicitly removes an unavailable stream', () => {
+  const { registry } = fakeRegistry();
+  registry.ingest('osc/test', 1_000_000, 1);
+  assert.equal(registry.remove('osc/test'), true);
+  assert.equal(registry.snapshot('osc/test'), null);
+});

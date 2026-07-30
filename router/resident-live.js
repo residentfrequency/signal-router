@@ -75,7 +75,24 @@ function startResidentLive({ routerUrl = ROUTER_URL, port = PORT, analysisInterv
     routerSocket = new WebSocket(routerUrl, { rejectUnauthorized: false });
     routerSocket.on('message', raw => {
       try {
-        ingestRouterMessage(registry, JSON.parse(raw.toString()), Date.now() * 1000,
+        const data = JSON.parse(raw.toString());
+        if (data.type === 'streams_unavailable' && Array.isArray(data.devices)) {
+          for (const device of data.devices) {
+            registry.remove(device);
+            const previous = latest.get(device);
+            if (!previous) continue;
+            const message = {
+              ...previous, ready: false, reason: 'idle', coverage: 0, voices: []
+            };
+            latest.set(device, message);
+            const json = JSON.stringify(message);
+            for (const client of wss.clients) {
+              if (client.readyState === WebSocket.OPEN) client.send(json);
+            }
+          }
+          return;
+        }
+        ingestRouterMessage(registry, data, Date.now() * 1000,
           (device, value) => liveValues.set(device, value));
       } catch {}
     });

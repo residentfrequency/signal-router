@@ -565,12 +565,22 @@ function updatePcmSource(device) {
   const usb = ip === '192.168.0.32' && fs.existsSync(PCM_USB_DEVICE);
   if (usb) {
     sendIndoorUsbCommand(enabled ? 'INP1' : 'INP0');
+    if (!enabled) markPcmDerivedUnavailable(device);
     return;
   }
   const request = http.get({ host: ip, port: 80,
     path: `/audio/${usb ? 'usb' : 'raw'}?enabled=${enabled ? 1 : 0}`, timeout: 3000 }, response => response.resume());
   request.on('timeout', () => request.destroy());
   request.on('error', error => console.warn(`PCM control ${ip}: ${error.message}`));
+}
+
+function markPcmDerivedUnavailable(device) {
+  const match = /^pcm\/([^/]+)\/audio$/.exec(device);
+  if (!match) return;
+  broadcast({
+    type: 'streams_unavailable',
+    devices: ['bass', 'mid', 'high', 'centroid'].map(param => `osc/${match[1]}/${param}`)
+  });
 }
 
 function pcmSourceSubscribed(device) {
@@ -759,6 +769,9 @@ let indoorUsbStatusAt = 0;
 function sendIndoorUsbCommand(command) {
   if (!fs.existsSync(PCM_USB_DEVICE) || Buffer.byteLength(command) !== 4) return false;
   try {
+    if (pcmUsbStream && Number.isInteger(pcmUsbStream.fd)) {
+      return fs.writeSync(pcmUsbStream.fd, command) === 4;
+    }
     const descriptor = fs.openSync(PCM_USB_DEVICE, 'r+');
     fs.writeSync(descriptor, command);
     fs.closeSync(descriptor);
@@ -853,6 +866,7 @@ setInterval(() => {
     if (capability.available && (!stream || now - stream.lastSeen > 1500)) {
       capability.available = false;
       broadcast({ ...capability, available: false, value: 0 });
+      markPcmDerivedUnavailable(capability.device);
     }
   }
 }, 1000);

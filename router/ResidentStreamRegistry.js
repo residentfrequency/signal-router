@@ -36,6 +36,10 @@ class ResidentStreamRegistry {
     return this.streams.size;
   }
 
+  remove(streamId) {
+    return this.streams.delete(streamId);
+  }
+
   ingest(streamId, timestampUs, value, sequence = null, receivedAtUs = Date.now() * 1000) {
     if (typeof streamId !== 'string' || !streamId) throw new TypeError('streamId must be a non-empty string');
     timestampUs = Number(timestampUs);
