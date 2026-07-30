@@ -21,6 +21,7 @@ test('shared visualizer resets modulation history across source gaps', () => {
     'utf8',
   );
   const page = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
-  assert.match(analysis, /timestampUs - this\.lastTimestampUs > intervalUs \* 3\) this\.reset\(\)/);
+  assert.doesNotMatch(analysis, /timestampUs - this\.lastTimestampUs > intervalUs \* 3/);
   assert.match(page, /if\(missingCount!==modulationMissingCount\)\{modulation\.reset\(\)/);
+  assert.match(page, /historical=i===frames-1\?s:fftData\(timestamp\)/);
 });

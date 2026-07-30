@@ -32,15 +32,9 @@
       if (!spectrum?.points?.length || !(timestampUs > 0) || !(frameRate > 0)) return false;
       const intervalUs = 1e6 / frameRate;
       if (this.lastTimestampUs && timestampUs - this.lastTimestampUs < intervalUs) return false;
-      if (this.lastTimestampUs && timestampUs - this.lastTimestampUs > intervalUs * 3) this.reset();
 
-      const observedFrameRate = this.lastTimestampUs
-        ? 1e6 / (timestampUs - this.lastTimestampUs)
-        : frameRate;
       this.lastTimestampUs = timestampUs;
-      this.frameRate = this.frameRate
-        ? this.frameRate * 0.9 + observedFrameRate * 0.1
-        : observedFrameRate;
+      this.frameRate = frameRate;
       this.mode = mode;
       this.minFrequency = spectrum.points[0].frequency;
       this.maxFrequency = spectrum.points[spectrum.points.length - 1].frequency;
