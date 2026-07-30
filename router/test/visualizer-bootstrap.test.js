@@ -40,7 +40,9 @@ test('controls follow the active visualization', () => {
   assert.match(html, /class="controls view-controls"/);
   assert.match(html, /class="wave-control">window/);
   assert.match(html, /class="spectral-control">FFT/);
-  assert.match(html, /class="spectrogram-control"><input id="smooth"/);
+  assert.match(html, /class="image-control"><input id="smooth"/);
+  assert.match(html, /data-view="modulation"/);
+  assert.match(html, /class="modulation-control">palette/);
   assert.match(html, /function updateControlVisibility\(\)/);
   assert.doesNotMatch(html, /id="fps"/);
   assert.match(html, /frequencyMode='log'/);
