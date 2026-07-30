@@ -53,6 +53,7 @@ test('PCM source power is latched separately from browser delivery subscriptions
   const visualizer = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
   assert.match(server, /const pcmSourceEnabled = new Map\(\)/);
   assert.match(server, /data\.type === 'pcm_source_enable'/);
+  assert.doesNotMatch(server, /pcmSourceSubscribed/);
   assert.doesNotMatch(server, /for \(const device of pcmDevices\) updatePcmSource/);
   assert.match(page, /togglePcmSource/);
   assert.match(visualizer, /type:'pcm_source_enable'/);
