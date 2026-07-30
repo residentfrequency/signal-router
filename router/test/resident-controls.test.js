@@ -28,6 +28,8 @@ test('voices outputs and stream controls follow analyzer readiness', () => {
 test('voices page shows current values and readable analysis progress', () => {
   assert.match(source, /resident-stream-value/);
   assert.match(source, /message\.value/);
+  assert.match(source, /resident_values/);
+  assert.match(source, /updateResidentValues/);
   assert.match(source, /cells\[6\]\.textContent = 'reading'/);
   assert.match(source, /coverage \* 100/);
   assert.match(source, /\+ '%'/);

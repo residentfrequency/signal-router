@@ -226,6 +226,21 @@ const injectedScript = String.raw`
     }
   }
 
+  window.updateResidentValues = function updateResidentValues(updates) {
+    for (const update of updates || []) {
+      const message = messages.get(update.device);
+      if (message) message.value = update.value;
+      const group = groups.get(deviceName(update.device));
+      const value = group?.rows.get(update.device)?.querySelector('.resident-stream-value');
+      const incoming = Number(update.value);
+      if (value && Number.isFinite(incoming)) {
+        value.textContent = Math.abs(incoming) >= 100
+          ? incoming.toFixed(2)
+          : incoming.toFixed(4);
+      }
+    }
+  };
+
   const unfilteredRender = render;
   render = function renderWithAvailability(message) {
     unfilteredRender(message);
@@ -311,9 +326,13 @@ zlib.gunzipSync = function residentPageGunzip(buffer, options) {
     return result;
   }
 
-  const injected = html.includes('</body>')
-    ? html.replace('</body>', injectedScript + '\n</body>')
-    : html + injectedScript;
+  const liveValueHtml = html.replace(
+    "if(d.type==='resident_voices')render(d)",
+    "if(d.type==='resident_voices')render(d);else if(d.type==='resident_values')window.updateResidentValues?.(d.updates)",
+  );
+  const injected = liveValueHtml.includes('</body>')
+    ? liveValueHtml.replace('</body>', injectedScript + '\n</body>')
+    : liveValueHtml + injectedScript;
 
   console.log('Beat CC range controls injected into resident page');
   return isBuffer ? Buffer.from(injected, 'utf8') : injected;

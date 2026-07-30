@@ -15,31 +15,42 @@ function midiStreamId(data) {
   return null;
 }
 
-function ingestRouterMessage(registry, data, nowTimestampUs = Date.now() * 1000) {
+function ingestRouterMessage(registry, data, nowTimestampUs = Date.now() * 1000, onValue = null) {
   if (!data || typeof data !== 'object') return 0;
   if (data.type === 'sample_batch' && Array.isArray(data.streams)) {
     let count = 0;
     for (const stream of data.streams) {
       const streamId = stream.device || `osc/${stream.name}/${stream.param}`;
-      count += registry.ingestBatch(streamId, stream.samples || []);
+      const samples = stream.samples || [];
+      count += registry.ingestBatch(streamId, samples);
+      if (onValue && samples.length) {
+        const latest = samples.reduce((candidate, sample) =>
+          Number(sample[1]) >= Number(candidate[1]) ? sample : candidate);
+        if (Number.isFinite(Number(latest[2]))) onValue(streamId, Number(latest[2]));
+      }
     }
     return count;
   }
   if (data.type === 'signal_batch' && Array.isArray(data.signals)) {
-    return data.signals.reduce((count, signal) => count + ingestRouterMessage(registry, signal, nowTimestampUs), 0);
+    return data.signals.reduce((count, signal) =>
+      count + ingestRouterMessage(registry, signal, nowTimestampUs, onValue), 0);
   }
   if ((data.type === 'osc' || data.type === 'json') && Number.isFinite(Number(data.value))) {
-    return registry.ingest(
+    const accepted = registry.ingest(
       data.device,
       Number.isFinite(Number(data.timeUs)) ? Number(data.timeUs) : nowTimestampUs,
       Number(data.value),
       data.sequence,
-    ) ? 1 : 0;
+    );
+    if (accepted && onValue) onValue(data.device, Number(data.value));
+    return accepted ? 1 : 0;
   }
   if (data.type === 'midi') {
     const streamId = midiStreamId(data);
     if (!streamId || !Number.isFinite(Number(data.value))) return 0;
-    return registry.ingest(streamId, nowTimestampUs, Number(data.value)) ? 1 : 0;
+    const accepted = registry.ingest(streamId, nowTimestampUs, Number(data.value));
+    if (accepted && onValue) onValue(streamId, Number(data.value));
+    return accepted ? 1 : 0;
   }
   return 0;
 }
@@ -50,6 +61,7 @@ function page() { return zlib.gunzipSync(Buffer.from(PAGE_GZIP_BASE64, 'base64')
 
 function startResidentLive({ routerUrl = ROUTER_URL, port = PORT, analysisIntervalMs = ANALYSIS_INTERVAL_MS, registry = new ResidentStreamRegistry() } = {}) {
   const latest = new Map();
+  const liveValues = new Map();
   const server = http.createServer((req, res) => {
     if (req.url !== '/' && req.url !== '/resident/') { res.writeHead(404).end('not found'); return; }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -61,7 +73,12 @@ function startResidentLive({ routerUrl = ROUTER_URL, port = PORT, analysisInterv
   const connect = () => {
     if (wss.clients.size === 0 || routerSocket) return;
     routerSocket = new WebSocket(routerUrl, { rejectUnauthorized: false });
-    routerSocket.on('message', raw => { try { ingestRouterMessage(registry, JSON.parse(raw.toString())); } catch {} });
+    routerSocket.on('message', raw => {
+      try {
+        ingestRouterMessage(registry, JSON.parse(raw.toString()), Date.now() * 1000,
+          (device, value) => liveValues.set(device, value));
+      } catch {}
+    });
     routerSocket.on('close', () => {
       routerSocket = null;
       if (wss.clients.size > 0) reconnectTimer = setTimeout(connect, 2000);
@@ -88,9 +105,16 @@ function startResidentLive({ routerUrl = ROUTER_URL, port = PORT, analysisInterv
     const json = JSON.stringify(message);
     for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(json);
   }, analysisIntervalMs);
+  const valueTimer = setInterval(() => {
+    if (wss.clients.size === 0 || liveValues.size === 0) return;
+    const updates = [...liveValues].map(([device, value]) => ({ device, value }));
+    liveValues.clear();
+    const json = JSON.stringify({ type: 'resident_values', updates });
+    for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(json);
+  }, 250);
   server.listen(port, '127.0.0.1',
     () => console.log(`Resident voices: http://127.0.0.1:${port}/resident/`));
-  return { server, registry, close() { clearInterval(analysisTimer); clearTimeout(reconnectTimer); routerSocket?.close(); wss.close(); server.close(); } };
+  return { server, registry, close() { clearInterval(analysisTimer); clearInterval(valueTimer); clearTimeout(reconnectTimer); routerSocket?.close(); wss.close(); server.close(); } };
 }
 
 if (require.main === module) startResidentLive();

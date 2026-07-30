@@ -410,6 +410,29 @@ function registerSource(ip, name) {
   if (!ip || typeof name !== 'string' || !name) return;
   const previous = sourceNames.get(ip);
   sourceNames.set(ip, name);
+  const oldDevice = `pcm/${ip}/audio`;
+  const newDevice = `pcm/${name}/audio`;
+  if (oldDevice !== newDevice) {
+    const oldCapability = audioCapabilities.get(oldDevice);
+    if (oldCapability && !audioCapabilities.has(newDevice)) {
+      audioCapabilities.delete(oldDevice);
+      oldCapability.device = newDevice;
+      oldCapability.name = name;
+      audioCapabilities.set(newDevice, oldCapability);
+    } else {
+      audioCapabilities.delete(oldDevice);
+    }
+    if (pcmStreams.has(oldDevice) && !pcmStreams.has(newDevice)) {
+      const stream = pcmStreams.get(oldDevice);
+      pcmStreams.delete(oldDevice);
+      stream.device = newDevice;
+      pcmStreams.set(newDevice, stream);
+    }
+    if (pcmAnalyzers.has(oldDevice) && !pcmAnalyzers.has(newDevice)) {
+      pcmAnalyzers.set(newDevice, pcmAnalyzers.get(oldDevice));
+      pcmAnalyzers.delete(oldDevice);
+    }
+  }
   if (previous !== name) broadcast(sourceInfo(ip, name));
 }
 
