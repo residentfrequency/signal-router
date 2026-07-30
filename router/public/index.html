@@ -316,14 +316,15 @@ function renderOSCPorts() {
   `;
 
   const outputRow = table.insertRow();
+  const unavailableClass = OSC_UDP_AVAILABLE === false ? ' class="dim"' : '';
   const state = OSC_UDP_AVAILABLE === null
     ? '<span class="neutral">CHECKING</span>'
     : OSC_UDP_AVAILABLE
-      ? '<span class="connected">ALWAYS ON</span>'
-      : '<span class="disconnected">DISABLED</span>';
+      ? '<span class="neutral">ALWAYS ON</span>'
+      : '<span class="neutral">DISABLED</span>';
   outputRow.innerHTML = `
-    <td>out to this machine</td>
-    <td>${MY_IP || 'this client'}:9000</td>
+    <td${unavailableClass}>out to this machine</td>
+    <td${unavailableClass}>${MY_IP || 'this client'}:9000</td>
     <td>${state}</td>
     <td class="dim">${OSC_UDP_REASON}</td>
   `;
@@ -789,8 +790,8 @@ ws.onmessage = event => {
 
     OSC_UDP_AVAILABLE = data.oscUdpAvailable === true;
     OSC_UDP_REASON = data.oscUdpReason || (OSC_UDP_AVAILABLE
-      ? 'Router continuously forwards all signals to this machine via OSC UDP.'
-      : 'OSC UDP is unavailable for this connection.');
+      ? 'router → OSC senders'
+      : 'Connect on LAN or VPN to enable');
     renderOSCPorts();
     updateOSCStatus();
 

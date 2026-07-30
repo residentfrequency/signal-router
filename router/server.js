@@ -907,8 +907,8 @@ wss.on('connection', (ws, req) => {
     oscReceive:      oscReceiveClients.has(clientIp),
     oscUdpAvailable: ws.oscUdpAvailable,
     oscUdpReason:    ws.oscUdpAvailable
-      ? 'Router continuously forwards all signals to this machine via OSC UDP.'
-      : 'Disabled because this page is connected through Cloudflare; UDP cannot traverse the web tunnel.',
+      ? 'router → OSC senders'
+      : 'Connect on LAN or VPN to enable',
     isServerMachine: rawIp === '127.0.0.1' || rawIp === '::1' ||
       Object.values(os.networkInterfaces()).flat().some(i => i?.address === rawIp)
   }));
