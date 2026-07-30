@@ -29,6 +29,7 @@ class ResidentStreamRegistry {
       createTracker,
     });
     this.streams = new Map();
+    this.analysisCursor = 0;
   }
 
   get size() {
@@ -72,28 +73,22 @@ class ResidentStreamRegistry {
         this.streams.delete(streamId);
         continue;
       }
-
-      const interpolation = this.interpolationFor(streamId);
-      const analysis = entry.analyzer.analyze(entry.buffer, {
-        endTimestampUs: entry.lastTimestampUs,
-        interpolation,
-      });
-      const voices = entry.tracker.update(
-        analysis.ready ? analysis.candidates : [],
-        { timestampUs: entry.lastTimestampUs },
-      );
-      messages.push({
-        type: 'resident_voices',
-        device: streamId,
-        timestampUs: entry.lastTimestampUs,
-        interpolation,
-        ready: analysis.ready,
-        reason: analysis.reason,
-        coverage: analysis.coverage,
-        voices,
-      });
+      messages.push(this.#analyze(streamId, entry));
     }
     return messages;
+  }
+
+  analyzeNext({ nowTimestampUs = Date.now() * 1000 } = {}) {
+    for (const [streamId, entry] of this.streams) {
+      if (nowTimestampUs - entry.lastReceivedAtUs > this.staleAfterUs) {
+        this.streams.delete(streamId);
+      }
+    }
+    const entries = [...this.streams.entries()];
+    if (entries.length === 0) return null;
+    this.analysisCursor %= entries.length;
+    const [streamId, entry] = entries[this.analysisCursor++];
+    return this.#analyze(streamId, entry);
   }
 
   snapshot(streamId) {
@@ -120,6 +115,28 @@ class ResidentStreamRegistry {
       this.streams.set(streamId, entry);
     }
     return entry;
+  }
+
+  #analyze(streamId, entry) {
+    const interpolation = this.interpolationFor(streamId);
+    const analysis = entry.analyzer.analyze(entry.buffer, {
+      endTimestampUs: entry.lastTimestampUs,
+      interpolation,
+    });
+    const voices = entry.tracker.update(
+      analysis.ready ? analysis.candidates : [],
+      { timestampUs: entry.lastTimestampUs },
+    );
+    return {
+      type: 'resident_voices',
+      device: streamId,
+      timestampUs: entry.lastTimestampUs,
+      interpolation,
+      ready: analysis.ready,
+      reason: analysis.reason,
+      coverage: analysis.coverage,
+      voices,
+    };
   }
 }
 

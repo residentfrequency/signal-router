@@ -83,6 +83,17 @@ test('publishes resident voice messages and forwards interpolation mode', () => 
   assert.equal(tracked[0].options.timestampUs, 2_000_000);
 });
 
+test('staggers analysis across streams in round-robin order', () => {
+  const { registry, analyzed } = fakeRegistry();
+  registry.ingest('osc/a', 2_000_000, 1);
+  registry.ingest('osc/b', 2_000_000, 2);
+
+  assert.equal(registry.analyzeNext({ nowTimestampUs: 2_000_000 }).device, 'osc/a');
+  assert.equal(registry.analyzeNext({ nowTimestampUs: 2_000_000 }).device, 'osc/b');
+  assert.equal(registry.analyzeNext({ nowTimestampUs: 2_000_000 }).device, 'osc/a');
+  assert.equal(analyzed.length, 3);
+});
+
 test('ingests timestamped router batches', () => {
   const { registry } = fakeRegistry();
   const count = registry.ingestBatch('osc/electric-sky/temperature', [

@@ -82,11 +82,11 @@ function startResidentLive({ routerUrl = ROUTER_URL, port = PORT, analysisInterv
   });
   const analysisTimer = setInterval(() => {
     if (wss.clients.size === 0) return;
-    for (const message of registry.analyzeAll()) {
-      latest.set(message.device, message);
-      const json = JSON.stringify(message);
-      for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(json);
-    }
+    const message = registry.analyzeNext();
+    if (!message) return;
+    latest.set(message.device, message);
+    const json = JSON.stringify(message);
+    for (const client of wss.clients) if (client.readyState === WebSocket.OPEN) client.send(json);
   }, analysisIntervalMs);
   server.listen(port, '127.0.0.1',
     () => console.log(`Resident voices: http://127.0.0.1:${port}/resident/`));
