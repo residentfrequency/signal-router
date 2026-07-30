@@ -877,9 +877,12 @@ function updateResidentBridge() {
 wss.on('connection', (ws, req) => {
   const rawIp    = (req.headers['x-forwarded-for'] || req.socket.remoteAddress).replace(/^::ffff:/, '');
   const clientIp = (rawIp === '127.0.0.1' || rawIp === '::1') ? os.hostname() : rawIp;
+  const viaCloudflare = Boolean(req.headers['cf-ray'] || req.headers['cf-connecting-ip']);
+  ws.oscUdpAvailable = !viaCloudflare;
 
   if (!connectionsByIp.has(clientIp)) connectionsByIp.set(clientIp, new Set());
   connectionsByIp.get(clientIp).add(ws);
+  if (ws.oscUdpAvailable) oscReceiveClients.add(clientIp);
   ws.pcmSubscriptions = new Set();
   ws.pcmAnalysisSubscriptions = new Set();
   ws.residentSubscribed = false;
@@ -902,6 +905,10 @@ wss.on('connection', (ws, req) => {
     oscOutPort:      OSC_OUT_PORT,
     oscInPort:       OSC_IN_PORT,
     oscReceive:      oscReceiveClients.has(clientIp),
+    oscUdpAvailable: ws.oscUdpAvailable,
+    oscUdpReason:    ws.oscUdpAvailable
+      ? 'Router continuously forwards all signals to this machine via OSC UDP.'
+      : 'Disabled because this page is connected through Cloudflare; UDP cannot traverse the web tunnel.',
     isServerMachine: rawIp === '127.0.0.1' || rawIp === '::1' ||
       Object.values(os.networkInterfaces()).flat().some(i => i?.address === rawIp)
   }));
@@ -914,12 +921,6 @@ wss.on('connection', (ws, req) => {
       if (data.type === 'resident_subscribe') {
         ws.residentSubscribed = data.enabled !== false;
         updateResidentBridge();
-        return;
-      }
-
-      if (data.type === 'osc_toggle_receive') {
-        data.enabled ? oscReceiveClients.add(clientIp) : oscReceiveClients.delete(clientIp);
-        broadcastClientStats();
         return;
       }
 

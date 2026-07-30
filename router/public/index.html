@@ -209,7 +209,8 @@ hr.dim { border: none; border-top: 1px solid #1a1a1a; margin: 0.8em 0; }
 }</pre>
     <hr class="dim">
     <strong>OSC — automatic on port 9000</strong><br>
-    Every connected browser that has RECEIVE ON gets all signals as OSC UDP on port 9000.<br><br>
+    Every directly connected client gets all signals as OSC UDP on port 9000.
+    UDP output is disabled when the page is reached through a web tunnel such as Cloudflare.<br><br>
     <strong>TouchDesigner:</strong> OSC In CHOP → port 9000<br>
     <strong>VCV Rack:</strong> VCV OSC module → port 9000<br>
     <strong>Max for Live:</strong> <code>udpreceive 9000</code><br>
@@ -299,35 +300,13 @@ function setPortSend(portName, val) {
 // OSC PORT STATE
 // ═══════════════════════════════════════════════════
 
-const oscPortState = loadOSCPortState();
-
-function loadOSCPortState() {
-  try { return JSON.parse(localStorage.getItem('rf-osc-port-state') || '{}'); }
-  catch { return {}; }
-}
-
-function saveOSCPortState() {
-  localStorage.setItem('rf-osc-port-state', JSON.stringify(oscPortState));
-}
-
-function isOSCReceiving(port) { return oscPortState[port]?.receive === true; }
-
-function setOSCReceive(port, val) {
-  if (!oscPortState[port]) oscPortState[port] = {};
-  oscPortState[port].receive = val;
-  saveOSCPortState();
-  if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'osc_toggle_receive', enabled: val }));
-  renderOSCPorts();
-  updateOSCStatus();
-}
-
-function toggleOSCReceive(port) { setOSCReceive(port, !isOSCReceiving(port)); }
+let OSC_UDP_AVAILABLE = null;
+let OSC_UDP_REASON = 'Checking whether this machine is directly reachable from the router.';
 
 function renderOSCPorts() {
   const table = document.getElementById('osc-ports-table');
   while (table.rows.length > 1) table.deleteRow(1);
 
-  const recv = isOSCReceiving(9000);
   const inputRow = table.insertRow();
   inputRow.innerHTML = `
     <td>into router</td>
@@ -337,19 +316,22 @@ function renderOSCPorts() {
   `;
 
   const outputRow = table.insertRow();
+  const state = OSC_UDP_AVAILABLE === null
+    ? '<span class="neutral">CHECKING</span>'
+    : OSC_UDP_AVAILABLE
+      ? '<span class="connected">ALWAYS ON</span>'
+      : '<span class="disconnected">DISABLED</span>';
   outputRow.innerHTML = `
     <td>out to this machine</td>
     <td>${MY_IP || 'this client'}:9000</td>
-    <td><button class="btn ${recv ? 'on' : 'off'}"
-        onclick="toggleOSCReceive(9000)">${recv ? 'ON' : 'OFF'}</button></td>
-    <td class="dim">${recv ? 'router → local OSC listener' : 'optional forwarding off'}</td>
+    <td>${state}</td>
+    <td class="dim">${OSC_UDP_REASON}</td>
   `;
 }
 
 function updateOSCStatus() {
-  const recv = isOSCReceiving(9000);
   document.getElementById('osc-status').textContent =
-    recv ? 'OSC in :5005 · out :9000' : 'OSC in :5005';
+    OSC_UDP_AVAILABLE ? 'OSC in :5005 · out :9000' : 'OSC in :5005';
 }
 
 renderOSCPorts();
@@ -805,13 +787,12 @@ ws.onmessage = event => {
 
     const os = detectOS();
 
-    if (data.oscReceive !== undefined && data.oscReceive !== isOSCReceiving(9000)) {
-      oscPortState[9000] = oscPortState[9000] || {};
-      oscPortState[9000].receive = data.oscReceive;
-      saveOSCPortState();
-      renderOSCPorts();
-      updateOSCStatus();
-    }
+    OSC_UDP_AVAILABLE = data.oscUdpAvailable === true;
+    OSC_UDP_REASON = data.oscUdpReason || (OSC_UDP_AVAILABLE
+      ? 'Router continuously forwards all signals to this machine via OSC UDP.'
+      : 'OSC UDP is unavailable for this connection.');
+    renderOSCPorts();
+    updateOSCStatus();
 
     let connType = 'unknown connection type';
     if (data.isServerMachine)              connType = 'same machine';

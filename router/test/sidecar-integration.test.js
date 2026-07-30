@@ -27,3 +27,14 @@ test('main HTTPS server exposes and subscribes both analysis pages', () => {
   assert.match(source, /new WebSocket\(`ws:\/\/127\.0\.0\.1:\$\{RESIDENT_PORT\}`\)/);
   assert.match(source, /app\.get\('\/modulation-spectrum\/'/);
 });
+
+test('OSC UDP output is automatic for direct clients and disabled through Cloudflare', () => {
+  const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  const page = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
+  assert.match(server, /const viaCloudflare = Boolean/);
+  assert.match(server, /if \(ws\.oscUdpAvailable\) oscReceiveClients\.add\(clientIp\)/);
+  assert.doesNotMatch(server, /data\.type === 'osc_toggle_receive'/);
+  assert.match(page, /ALWAYS ON/);
+  assert.match(page, /DISABLED/);
+  assert.doesNotMatch(page, /toggleOSCReceive/);
+});
