@@ -1,0 +1,15 @@
+[Unit]
+Description=Resident Frequency Persistent-Spectrum Analysis
+After=network.target router.service
+Requires=router.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/signal-router/router
+ExecStart=/usr/bin/node resident-live-controls.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
