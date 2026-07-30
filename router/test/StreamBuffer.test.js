@@ -20,6 +20,18 @@ test('stores router batches in timestamp order and replaces duplicate timestamps
   ]);
 });
 
+test('appends chronological batches and replaces a duplicate boundary sample', () => {
+  const buffer = new StreamBuffer({ durationSeconds: 10 });
+  buffer.pushBatch([[1, 1_000_000, 10], [2, 2_000_000, 20]]);
+  buffer.pushBatch([[3, 2_000_000, 23], [4, 3_000_000, 30]]);
+
+  assert.deepEqual(buffer.toArray(), [
+    { sequence: 1, timestampUs: 1_000_000, value: 10 },
+    { sequence: 3, timestampUs: 2_000_000, value: 23 },
+    { sequence: 4, timestampUs: 3_000_000, value: 30 },
+  ]);
+});
+
 test('trims history relative to the newest timestamp', () => {
   const buffer = new StreamBuffer({ durationSeconds: 2 });
   buffer.pushBatch([

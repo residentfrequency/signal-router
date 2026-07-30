@@ -73,8 +73,25 @@ class StreamBuffer {
     if (!Array.isArray(samples)) throw new TypeError('samples must be an array');
     if (samples.length === 0) return this.size;
 
-    const normalized = samples.map(StreamBuffer.normalizeSample);
-    this.samples.push(...normalized);
+    const normalized = samples.map(StreamBuffer.normalizeSample)
+      .sort((a, b) => a.timestampUs - b.timestampUs);
+
+    const incoming = [];
+    for (const sample of normalized) {
+      const previous = incoming[incoming.length - 1];
+      if (previous?.timestampUs === sample.timestampUs) incoming[incoming.length - 1] = sample;
+      else incoming.push(sample);
+    }
+
+    const lastExisting = this.samples[this.samples.length - 1];
+    if (!lastExisting || incoming[0].timestampUs >= lastExisting.timestampUs) {
+      if (lastExisting?.timestampUs === incoming[0].timestampUs) this.samples.pop();
+      this.samples.push(...incoming);
+      this.#trim();
+      return this.size;
+    }
+
+    this.samples.push(...incoming);
     this.samples.sort((a, b) => a.timestampUs - b.timestampUs);
 
     // Keep the newest value when duplicate timestamps occur.
