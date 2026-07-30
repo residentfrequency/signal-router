@@ -1048,8 +1048,9 @@ function getNetworkMode() {
 
 app.use(express.json());
 app.get('/api/status', (req, res) => res.json({ ok: true, hostname: os.hostname() }));
-app.get(/^\/resident$/, (req, res) => res.redirect(308, '/resident/'));
-app.get('/resident/', (req, res) => {
+app.get(/^\/resident\/?$/, (req, res) => res.redirect(308, '/voices/'));
+app.get(/^\/voices$/, (req, res) => res.redirect(308, '/voices/'));
+app.get('/voices/', (req, res) => {
   const request = http.get({
     host: '127.0.0.1', port: RESIDENT_PORT, path: '/resident/', timeout: 5000
   }, response => {
