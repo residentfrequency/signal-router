@@ -538,8 +538,7 @@ function pcmSourceIp(device) {
 function updatePcmSource(device) {
   const ip = pcmSourceIp(device);
   if (!ip) return;
-  const enabled = [...wss.clients].some(client => client.readyState === 1 &&
-    (client.pcmSubscriptions?.has(device) || client.pcmAnalysisSubscriptions?.has(device)));
+  const enabled = pcmSourceSubscribed(device);
   const usb = ip === '192.168.0.32' && fs.existsSync(PCM_USB_DEVICE);
   if (usb) {
     sendIndoorUsbCommand(enabled ? 'INP1' : 'INP0');
@@ -549,6 +548,11 @@ function updatePcmSource(device) {
     path: `/audio/${usb ? 'usb' : 'raw'}?enabled=${enabled ? 1 : 0}`, timeout: 3000 }, response => response.resume());
   request.on('timeout', () => request.destroy());
   request.on('error', error => console.warn(`PCM control ${ip}: ${error.message}`));
+}
+
+function pcmSourceSubscribed(device) {
+  return [...wss.clients].some(client => client.readyState === 1 &&
+    (client.pcmSubscriptions?.has(device) || client.pcmAnalysisSubscriptions?.has(device)));
 }
 
 function pcmDeviceFor(ip) {
@@ -808,6 +812,10 @@ function openPcmUsb() {
       pcmUsbPending = Buffer.alloc(0);
     });
     console.log(`PCM USB listening on ${PCM_USB_DEVICE}`);
+    setTimeout(() => {
+      const device = 'pcm/indoor-sky/audio';
+      if (!pcmSourceSubscribed(device)) sendIndoorUsbCommand('INP0');
+    }, 500);
   } catch (error) {
     console.warn(`PCM USB open: ${error.message}`);
   }

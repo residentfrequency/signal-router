@@ -17,11 +17,20 @@ test('voices page groups global MIDI and beat controls without the old title', (
 });
 
 test('voices outputs and stream controls follow analyzer readiness', () => {
-  assert.match(source, /const anyReady = \[\.\.\.messages\.values\(\)\]\.some/);
+  assert.match(source, /const readyCount = allMessages\.filter/);
+  assert.match(source, /streams ready/);
   assert.match(source, /midiEnable\.disabled = !anyReady/);
   assert.match(source, /group\.button\.disabled = !deviceReady/);
   assert.match(source, /row\.querySelectorAll\('input,select'\)/);
   assert.match(source, /control\.disabled = !ready/);
+});
+
+test('voices page shows current values and readable analysis progress', () => {
+  assert.match(source, /resident-stream-value/);
+  assert.match(source, /message\.value/);
+  assert.match(source, /cells\[6\]\.textContent = 'reading'/);
+  assert.match(source, /coverage \* 100/);
+  assert.match(source, /\+ '%'/);
 });
 
 test('stream Notes send state also mutes that stream in browser audio', () => {

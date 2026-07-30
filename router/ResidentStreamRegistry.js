@@ -45,6 +45,7 @@ class ResidentStreamRegistry {
 
     const entry = this.#entry(streamId);
     entry.buffer.push(timestampUs, value, sequence);
+    if (timestampUs >= (entry.lastTimestampUs ?? -Infinity)) entry.lastValue = value;
     entry.lastTimestampUs = Math.max(entry.lastTimestampUs ?? -Infinity, timestampUs);
     if (Number.isFinite(receivedAtUs)) entry.lastReceivedAtUs = receivedAtUs;
     return true;
@@ -60,6 +61,11 @@ class ResidentStreamRegistry {
 
     const entry = this.#entry(streamId);
     entry.buffer.pushBatch(finite);
+    const latest = finite.reduce((candidate, sample) =>
+      Number(sample[1]) >= Number(candidate[1]) ? sample : candidate);
+    if (Number(latest[1]) >= (entry.lastTimestampUs ?? -Infinity)) {
+      entry.lastValue = Number(latest[2]);
+    }
     entry.lastTimestampUs = entry.buffer.lastTimestampUs;
     receivedAtUs = Number(receivedAtUs);
     if (Number.isFinite(receivedAtUs)) entry.lastReceivedAtUs = receivedAtUs;
@@ -97,6 +103,7 @@ class ResidentStreamRegistry {
     return {
       device: streamId,
       lastTimestampUs: entry.lastTimestampUs,
+      value: entry.lastValue,
       sampleCount: entry.buffer.size,
       voices: entry.tracker.snapshot(),
     };
@@ -110,6 +117,7 @@ class ResidentStreamRegistry {
         analyzer: this.createAnalyzer(this.analyzerOptions),
         tracker: this.createTracker(this.trackerOptions),
         lastTimestampUs: null,
+        lastValue: null,
         lastReceivedAtUs: Date.now() * 1000,
       };
       this.streams.set(streamId, entry);
@@ -131,6 +139,7 @@ class ResidentStreamRegistry {
       type: 'resident_voices',
       device: streamId,
       timestampUs: entry.lastTimestampUs,
+      value: entry.lastValue,
       interpolation,
       ready: analysis.ready,
       reason: analysis.reason,

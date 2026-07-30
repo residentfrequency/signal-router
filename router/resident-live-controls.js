@@ -146,6 +146,8 @@ const injectedScript = String.raw`
     '.global-output-panel .beat-strip{border-top:1px solid rgba(127,127,127,.2)}',
     '.global-output-panel #resident-beat-range-rows:not(:empty){border-top:1px solid rgba(127,127,127,.2);margin-top:6px;padding-top:4px}',
     '.availability-disabled{opacity:.35}',
+    '#resident-readiness{margin-top:6px}',
+    '.resident-stream-value{display:block;margin-top:3px;font:12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted,#9292a4)}',
     'button:disabled,input:disabled,select:disabled{cursor:not-allowed;opacity:.35}',
     'tr.availability-disabled td{color:inherit}',
   ].join('');
@@ -169,7 +171,19 @@ const injectedScript = String.raw`
   };
 
   function updateOutputAvailability() {
-    const anyReady = [...messages.values()].some(message => message.ready === true);
+    const allMessages = [...messages.values()];
+    const readyCount = allMessages.filter(message => message.ready === true).length;
+    const anyReady = readyCount > 0;
+    let readiness = document.getElementById('resident-readiness');
+    if (!readiness) {
+      readiness = document.createElement('div');
+      readiness.id = 'resident-readiness';
+      readiness.className = 'status';
+      const status = document.getElementById('status');
+      if (status) status.insertAdjacentElement('afterend', readiness);
+      else (document.querySelector('main, #app') || document.body).prepend(readiness);
+    }
+    readiness.textContent = readyCount + ' of ' + allMessages.length + ' streams ready';
     midiEnable.disabled = !anyReady;
     midiEnable.closest('.midi-panel')?.classList.toggle('availability-disabled', !anyReady);
     globalBeatEnabled.disabled = !anyReady;
@@ -215,6 +229,31 @@ const injectedScript = String.raw`
   const unfilteredRender = render;
   render = function renderWithAvailability(message) {
     unfilteredRender(message);
+    const group = groups.get(deviceName(message.device));
+    const row = group?.rows.get(message.device);
+    if (row) {
+      const cells = row.children;
+      const title = cells[0];
+      let value = title.querySelector('.resident-stream-value');
+      if (!value) {
+        value = document.createElement('span');
+        value.className = 'resident-stream-value';
+        title.appendChild(value);
+      }
+      const incoming = Number(message.value);
+      value.textContent = Number.isFinite(incoming)
+        ? (Math.abs(incoming) >= 100 ? incoming.toFixed(2) : incoming.toFixed(4))
+        : '—';
+      if (cells[6] && !message.ready && message.reason === 'coverage') {
+        cells[6].textContent = 'reading';
+      }
+      if (cells[7]) {
+        const coverage = Number(message.coverage);
+        cells[7].textContent = Number.isFinite(coverage)
+          ? (coverage * 100).toFixed(0) + '%'
+          : '—';
+      }
+    }
     updateOutputAvailability();
   };
 

@@ -56,6 +56,7 @@ test('creates one independent pipeline per numeric stream', () => {
 
   assert.equal(registry.size, 2);
   assert.equal(registry.snapshot('osc/electric-sky/temperature').sampleCount, 2);
+  assert.equal(registry.snapshot('osc/electric-sky/temperature').value, 21);
   assert.equal(registry.snapshot('midi/MPK/ch1/cc73').sampleCount, 1);
 });
 
@@ -76,6 +77,7 @@ test('publishes resident voice messages and forwards interpolation mode', () => 
   assert.equal(messages.length, 1);
   assert.equal(messages[0].type, 'resident_voices');
   assert.equal(messages[0].device, 'midi/MPK/ch1/cc73');
+  assert.equal(messages[0].value, 64);
   assert.equal(messages[0].interpolation, 'hold');
   assert.equal(messages[0].ready, true);
   assert.deepEqual(messages[0].voices, [{ id: 1, active: true, frequencyHz: 0.5 }]);
@@ -104,6 +106,7 @@ test('ingests timestamped router batches', () => {
 
   assert.equal(count, 2);
   assert.equal(registry.snapshot('osc/electric-sky/temperature').sampleCount, 2);
+  assert.equal(registry.snapshot('osc/electric-sky/temperature').value, 21);
 });
 
 test('removes streams after the configured inactive interval', () => {
