@@ -770,7 +770,11 @@ function sendIndoorUsbCommand(command) {
   if (!fs.existsSync(PCM_USB_DEVICE) || Buffer.byteLength(command) !== 4) return false;
   try {
     if (pcmUsbStream && Number.isInteger(pcmUsbStream.fd)) {
-      return fs.writeSync(pcmUsbStream.fd, command) === 4;
+      try {
+        if (fs.writeSync(pcmUsbStream.fd, command) === 4) return true;
+      } catch (error) {
+        if (error.code !== 'EBADF') throw error;
+      }
     }
     const descriptor = fs.openSync(PCM_USB_DEVICE, 'r+');
     fs.writeSync(descriptor, command);
