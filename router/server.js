@@ -981,6 +981,8 @@ wss.on('connection', (ws, req) => {
       }
 
       if (data.type === 'pcm_subscribe' && typeof data.device === 'string') {
+        console.log(`PCM subscription ${data.enabled === false ? 'off' : 'on'} ${data.device}` +
+          ` from ${clientIp} (${req.headers.referer || 'no referrer'})`);
         data.enabled === false
           ? ws.pcmSubscriptions.delete(data.device)
           : ws.pcmSubscriptions.add(data.device);
@@ -996,6 +998,8 @@ wss.on('connection', (ws, req) => {
       }
 
       if (data.type === 'pcm_analysis_subscribe' && typeof data.device === 'string') {
+        console.log(`PCM analysis subscription ${data.enabled === false ? 'off' : 'on'} ${data.device}` +
+          ` from ${clientIp} (${req.headers.referer || 'no referrer'})`);
         data.enabled === false
           ? ws.pcmAnalysisSubscriptions.delete(data.device)
           : ws.pcmAnalysisSubscriptions.add(data.device);
