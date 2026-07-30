@@ -25,3 +25,13 @@ test('shared visualizer resets modulation history across source gaps', () => {
   assert.match(page, /if\(missingCount!==modulationMissingCount\)\{modulation\.reset\(\)/);
   assert.match(page, /historical=i===frames-1\?s:fftData\(timestamp\)/);
 });
+
+test('modulation controls reset incompatible history and report effective settings', () => {
+  const page = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(page, /fftPower\.oninput=.*modulation\.reset\(\)/);
+  assert.match(page, /welchControl\.oninput=.*modulation\.reset\(\)/);
+  assert.match(page, /bandAverage\.onchange=\(\)=>modulation\.reset\(\)/);
+  assert.match(page, /FFT \$\{s\.n\}\/\$\{s\.selected\} · Welch \$\{s\.segmentCount\}/);
+  assert.match(page, /mix=smooth\.checked\?binPosition-lowBin:0/);
+  assert.match(page, /regular-spectral-control/);
+});
