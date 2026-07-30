@@ -46,3 +46,15 @@ test('OSC UDP output is automatic for direct clients and disabled through Cloudf
   assert.match(page, /Connect on LAN or VPN to enable/);
   assert.doesNotMatch(page, /toggleOSCReceive/);
 });
+
+test('PCM source power is latched separately from browser delivery subscriptions', () => {
+  const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  const page = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
+  const visualizer = fs.readFileSync(path.join(__dirname, '../../visualizer/index.html'), 'utf8');
+  assert.match(server, /const pcmSourceEnabled = new Map\(\)/);
+  assert.match(server, /data\.type === 'pcm_source_enable'/);
+  assert.doesNotMatch(server, /for \(const device of pcmDevices\) updatePcmSource/);
+  assert.match(page, /togglePcmSource/);
+  assert.match(visualizer, /type:'pcm_source_enable'/);
+  assert.match(visualizer, /type:'pcm_subscribe'/);
+});

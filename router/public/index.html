@@ -617,7 +617,9 @@ function ensureRow(data) {
     <td><input type="number" min="0" max="9999"
          value="${defaultMax}" placeholder="—" ${disabled}
          onchange="setAssignment('${key}', 'max', +this.value)"></td>
-    <td>${isAudio ? '<span class="dim">—</span>' : `<button class="btn on" id="out-${safeKey}" onclick="toggleOut('${key}', '${safeKey}')">ON</button>`}</td>
+    <td>${isAudio
+      ? `<button class="btn ${data.enabled ? 'on' : 'off'}" id="out-${safeKey}" onclick="togglePcmSource('${key}', '${safeKey}')">${data.enabled ? 'ON' : 'OFF'}</button>`
+      : `<button class="btn on" id="out-${safeKey}" onclick="toggleOut('${key}', '${safeKey}')">ON</button>`}</td>
     <td><a class="btn" href="${viewHref}" target="_blank">${isAudio ? 'AUDIO' : 'OPEN'}</a></td>
   `;
 
@@ -640,6 +642,21 @@ function toggleOut(key, safeKey) {
   localStorage.setItem('rf-out-' + key, JSON.stringify(newVal));
   const btn = document.getElementById(`out-${safeKey}`);
   if (btn) { btn.textContent = newVal ? 'ON' : 'OFF'; btn.className = `btn ${newVal ? 'on' : 'off'}`; }
+}
+
+function togglePcmSource(key, safeKey) {
+  const btn = document.getElementById(`out-${safeKey}`);
+  const enabled = btn?.textContent !== 'ON';
+  if (ws.readyState === 1) {
+    ws.send(JSON.stringify({
+      type: 'pcm_source_enable', device: key, enabled,
+      page: location.pathname + location.search
+    }));
+  }
+  if (btn) {
+    btn.textContent = enabled ? 'ON' : 'OFF';
+    btn.className = `btn ${enabled ? 'on' : 'off'}`;
+  }
 }
 
 function updateRow(data) {
@@ -667,6 +684,11 @@ function updateRow(data) {
   if (data.type === 'audio') {
     if (rawEl) rawEl.textContent = data.available ? `LIVE ${data.sampleRate || 0} Hz` : 'idle';
     if (midiEl) midiEl.textContent = '—';
+    const btn = document.getElementById(`out-${safeKey}`);
+    if (btn) {
+      btn.textContent = data.enabled ? 'ON' : 'OFF';
+      btn.className = `btn ${data.enabled ? 'on' : 'off'}`;
+    }
   }
 
   if (data.type === 'midi') {

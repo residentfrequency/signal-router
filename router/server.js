@@ -546,6 +546,7 @@ midiSocket.bind(5006, '127.0.0.1', () => {
 const pcmSocket = dgram.createSocket('udp4');
 const pcmStreams = new Map();
 const pcmAnalyzers = new Map();
+const pcmSourceEnabled = new Map();
 const PCM_MAX_WS_BACKLOG = 256 * 1024;
 
 function pcmSourceIp(device) {
@@ -561,7 +562,7 @@ function pcmSourceIp(device) {
 function updatePcmSource(device) {
   const ip = pcmSourceIp(device);
   if (!ip) return;
-  const enabled = pcmSourceSubscribed(device);
+  const enabled = pcmSourceEnabled.get(device) === true;
   const usb = ip === '192.168.0.32' && fs.existsSync(PCM_USB_DEVICE);
   if (usb) {
     sendIndoorUsbCommand(enabled ? 'INP1' : 'INP0');
@@ -574,6 +575,17 @@ function updatePcmSource(device) {
   request.on('error', error => console.warn(`PCM control ${ip}: ${error.message}`));
 }
 
+function setPcmSourceEnabled(device, enabled) {
+  enabled = enabled === true;
+  pcmSourceEnabled.set(device, enabled);
+  const capability = audioCapabilities.get(device);
+  if (capability) {
+    capability.enabled = enabled;
+    broadcast({ ...capability });
+  }
+  updatePcmSource(device);
+}
+
 function markPcmDerivedUnavailable(device) {
   const match = /^pcm\/([^/]+)\/audio$/.exec(device);
   if (!match) return;
@@ -581,11 +593,6 @@ function markPcmDerivedUnavailable(device) {
     type: 'streams_unavailable',
     devices: ['bass', 'mid', 'high', 'centroid'].map(param => `osc/${match[1]}/${param}`)
   });
-}
-
-function pcmSourceSubscribed(device) {
-  return [...wss.clients].some(client => client.readyState === 1 &&
-    (client.pcmSubscriptions?.has(device) || client.pcmAnalysisSubscriptions?.has(device)));
 }
 
 function pcmDeviceFor(ip) {
@@ -598,7 +605,7 @@ function registerAudioCapability(source, name = sourceNames.get(source) || sourc
   if (!capability) {
     capability = {
       type: 'audio', device, source, name, param: 'audio',
-      sampleRate: 16000, available: false, enabled: true
+      sampleRate: 16000, available: false, enabled: pcmSourceEnabled.get(device) === true
     };
     audioCapabilities.set(device, capability);
     broadcast(capability);
@@ -807,7 +814,7 @@ function consumeUsbBytes(pending, chunk, source) {
         indoorUsbStatus = JSON.parse(pending.toString('utf8', 8, 8 + length));
         indoorUsbStatusAt = Date.now();
         const indoorPcmDevice = 'pcm/indoor-sky/audio';
-        const shouldStreamPcm = pcmSourceSubscribed(indoorPcmDevice);
+        const shouldStreamPcm = pcmSourceEnabled.get(indoorPcmDevice) === true;
         if (Boolean(indoorUsbStatus.usb_pcm_stream_enabled) !== shouldStreamPcm) {
           sendIndoorUsbCommand(shouldStreamPcm ? 'INP1' : 'INP0');
           if (!shouldStreamPcm) markPcmDerivedUnavailable(indoorPcmDevice);
@@ -988,7 +995,6 @@ wss.on('connection', (ws, req) => {
         data.enabled === false
           ? ws.pcmSubscriptions.delete(data.device)
           : ws.pcmSubscriptions.add(data.device);
-        updatePcmSource(data.device);
         const stream = pcmStreams.get(data.device);
         ws.send(JSON.stringify({
           type: 'pcm_stream', device: data.device,
@@ -1005,7 +1011,13 @@ wss.on('connection', (ws, req) => {
         data.enabled === false
           ? ws.pcmAnalysisSubscriptions.delete(data.device)
           : ws.pcmAnalysisSubscriptions.add(data.device);
-        updatePcmSource(data.device);
+        return;
+      }
+
+      if (data.type === 'pcm_source_enable' && typeof data.device === 'string') {
+        console.log(`PCM source ${data.enabled === true ? 'on' : 'off'} ${data.device}` +
+          ` from ${clientIp} (${data.page || req.headers.referer || 'no page'})`);
+        setPcmSourceEnabled(data.device, data.enabled === true);
         return;
       }
 
@@ -1040,10 +1052,8 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
-    const pcmDevices = new Set([...ws.pcmSubscriptions, ...ws.pcmAnalysisSubscriptions]);
     ws.pcmSubscriptions.clear();
     ws.pcmAnalysisSubscriptions.clear();
-    for (const device of pcmDevices) updatePcmSource(device);
     connectionsByIp.get(clientIp)?.delete(ws);
     if (connectionsByIp.get(clientIp)?.size === 0) {
       connectionsByIp.delete(clientIp);
