@@ -218,6 +218,33 @@ const injectedScript = String.raw`
     updateOutputAvailability();
   };
 
+  const pairwiseBeatValueFor = beatValueFor;
+  beatValueFor = function phaseAwareBeatValue(key, voices, now) {
+    if (!voices.length) return '—';
+    if (voices.length > 1) return pairwiseBeatValueFor(key, voices, now);
+
+    const voice = voices[0];
+    const state = beatState(key);
+    const dt = Math.min(0.1, Math.max(0, (now - state.lastTime) / 1000));
+    state.lastTime = now;
+    const phaseKey = 'single:' + voiceKey(voice.streamId, voice.id);
+    let phase = state.phases.get(phaseKey);
+    if (!Number.isFinite(phase)) phase = Number.isFinite(voice.phase) ? voice.phase : 0;
+    phase = (phase + 2 * Math.PI * Math.max(0, Number(voice.frequencyHz) || 0) * dt)
+      % (2 * Math.PI);
+    state.phases.clear();
+    state.phases.set(phaseKey, phase);
+    const raw = Math.cos(phase);
+    state.smoothed += 0.12 * (raw - state.smoothed);
+    return Math.max(0, Math.min(127, Math.round((state.smoothed + 1) * 63.5)));
+  };
+
+  const sendFiniteBeat = maybeSendBeat;
+  maybeSendBeat = function maybeSendFiniteBeat(config, value) {
+    if (!Number.isFinite(value)) return;
+    return sendFiniteBeat(config, value);
+  };
+
   const originalRequestMIDIAccess = navigator.requestMIDIAccess && navigator.requestMIDIAccess.bind(navigator);
   if (originalRequestMIDIAccess) {
     navigator.requestMIDIAccess = (...args) => originalRequestMIDIAccess(...args).then(wrapAccess);

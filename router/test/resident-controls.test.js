@@ -28,3 +28,11 @@ test('stream Notes send state also mutes that stream in browser audio', () => {
   assert.match(source, /filter\(voice => streamSettings\(voice\.streamId\)\.noteEnabled\)/);
   assert.match(source, /const unfilteredSyncAudio = syncAudio/);
 });
+
+test('beat CC uses measured phase for one voice and sends nothing for zero voices', () => {
+  assert.match(source, /if \(!voices\.length\) return '—'/);
+  assert.match(source, /if \(voices\.length > 1\) return pairwiseBeatValueFor/);
+  assert.match(source, /Number\.isFinite\(voice\.phase\) \? voice\.phase : 0/);
+  assert.match(source, /voice\.frequencyHz/);
+  assert.match(source, /if \(!Number\.isFinite\(value\)\) return/);
+});
