@@ -17,7 +17,7 @@ change recording state.
 The default directory is:
 
 ```text
-~/Documents/Resident Frequency Recordings/
+~/Resident Frequency Recordings/
 ```
 
 Files are grouped by source:
@@ -51,10 +51,12 @@ These environment variables can be added to the LaunchAgent if needed:
 ```text
 RF_ROUTER_URL=wss://adrian-pi:3000
 RF_RECORDER_PORT=3010
-RF_RECORDING_DIR=~/Documents/Resident Frequency Recordings
+RF_RECORDING_DIR=~/Resident Frequency Recordings
 RF_RECORDING_MAX_BYTES=21474836480
 RF_RECORDING_MIN_FREE_BYTES=8589934592
 ```
 
 Re-run `./install-macos.sh` after moving this repository, because the LaunchAgent
-contains absolute paths.
+contains absolute paths. The installer copies the runtime to
+`~/Library/Application Support/ResidentFrequency/recorder` so launchd does not
+need permission to access the source repository under `~/Documents`.

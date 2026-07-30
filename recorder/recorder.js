@@ -10,7 +10,7 @@ const parquet = require('parquetjs-lite');
 const PORT = Number(process.env.RF_RECORDER_PORT || 3010);
 const ROUTER_URL = process.env.RF_ROUTER_URL || 'wss://adrian-pi:3000';
 const DATA_DIR = expandHome(process.env.RF_RECORDING_DIR ||
-  '~/Documents/Resident Frequency Recordings');
+  '~/Resident Frequency Recordings');
 const MAX_BYTES = Number(process.env.RF_RECORDING_MAX_BYTES || 20 * 1024 ** 3);
 const MIN_FREE_BYTES = Number(process.env.RF_RECORDING_MIN_FREE_BYTES || 8 * 1024 ** 3);
 
