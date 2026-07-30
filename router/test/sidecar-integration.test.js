@@ -11,6 +11,9 @@ test('modulation spectrum page uses the serving HTTPS origin and PCM subscriptio
   assert.match(html, /location\.protocol==='https:'\?'wss:\/\/':'ws:\/\/'/);
   assert.match(html, /type:'pcm_subscribe'/);
   assert.match(html, /pcm\/indoor-sky\/audio/);
+  assert.match(html, /String\.fromCharCode\(data\.getUint8\(0\).*ESAU/);
+  assert.match(html, /bits===4/);
+  assert.match(html, /IMA_STEP/);
 });
 
 test('resident sidecar stays local and skips analysis without browser clients', () => {
