@@ -763,22 +763,22 @@ function consumePcmBytes(pending, chunk, source) {
 
 let pcmUsbStream = null;
 let pcmUsbPending = Buffer.alloc(0);
+let pendingPcmUsbCommand = null;
 let indoorUsbStatus = null;
 let indoorUsbStatusAt = 0;
 
 function sendIndoorUsbCommand(command) {
   if (!fs.existsSync(PCM_USB_DEVICE) || Buffer.byteLength(command) !== 4) return false;
+  if (pcmUsbStream) {
+    pendingPcmUsbCommand = command;
+    pcmUsbStream.destroy();
+    return true;
+  }
   try {
-    if (pcmUsbStream && Number.isInteger(pcmUsbStream.fd)) {
-      try {
-        if (fs.writeSync(pcmUsbStream.fd, command) === 4) return true;
-      } catch (error) {
-        if (error.code !== 'EBADF') throw error;
-      }
-    }
-    const descriptor = fs.openSync(PCM_USB_DEVICE, 'r+');
+    const descriptor = fs.openSync(PCM_USB_DEVICE, 'w');
     fs.writeSync(descriptor, command);
     fs.closeSync(descriptor);
+    setTimeout(openPcmUsb, 100);
     return true;
   } catch (error) {
     console.warn(`Indoor USB command: ${error.message}`);
@@ -848,8 +848,7 @@ function openPcmUsb() {
   if (pcmUsbStream || !fs.existsSync(PCM_USB_DEVICE)) return;
   try {
     execSync(`stty -F '${PCM_USB_DEVICE}' 921600 raw -echo`);
-    const descriptor = fs.openSync(PCM_USB_DEVICE, 'r+');
-    pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE, { fd: descriptor, autoClose: true });
+    pcmUsbStream = fs.createReadStream(PCM_USB_DEVICE);
     pcmUsbStream.on('data', chunk => {
       pcmUsbPending = consumeUsbBytes(pcmUsbPending, chunk, '192.168.0.32');
     });
@@ -857,6 +856,9 @@ function openPcmUsb() {
     pcmUsbStream.on('close', () => {
       pcmUsbStream = null;
       pcmUsbPending = Buffer.alloc(0);
+      const command = pendingPcmUsbCommand;
+      pendingPcmUsbCommand = null;
+      if (command) sendIndoorUsbCommand(command);
     });
     console.log(`PCM USB listening on ${PCM_USB_DEVICE}`);
     setTimeout(() => {
