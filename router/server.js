@@ -806,6 +806,12 @@ function consumeUsbBytes(pending, chunk, source) {
       try {
         indoorUsbStatus = JSON.parse(pending.toString('utf8', 8, 8 + length));
         indoorUsbStatusAt = Date.now();
+        const indoorPcmDevice = 'pcm/indoor-sky/audio';
+        const shouldStreamPcm = pcmSourceSubscribed(indoorPcmDevice);
+        if (Boolean(indoorUsbStatus.usb_pcm_stream_enabled) !== shouldStreamPcm) {
+          sendIndoorUsbCommand(shouldStreamPcm ? 'INP1' : 'INP0');
+          if (!shouldStreamPcm) markPcmDerivedUnavailable(indoorPcmDevice);
+        }
       } catch (error) {
         console.warn(`Indoor USB status: ${error.message}`);
       }
