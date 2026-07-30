@@ -868,10 +868,6 @@ function openPcmUsb() {
       if (command) sendIndoorUsbCommand(command);
     });
     console.log(`PCM USB listening on ${PCM_USB_DEVICE}`);
-    setTimeout(() => {
-      const device = 'pcm/indoor-sky/audio';
-      if (pcmSourceEnabled.get(device) !== true) sendIndoorUsbCommand('INP0');
-    }, 500);
   } catch (error) {
     console.warn(`PCM USB open: ${error.message}`);
   }

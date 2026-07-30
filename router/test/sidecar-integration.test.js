@@ -54,6 +54,7 @@ test('PCM source power is latched separately from browser delivery subscriptions
   assert.match(server, /const pcmSourceEnabled = new Map\(\)/);
   assert.match(server, /data\.type === 'pcm_source_enable'/);
   assert.doesNotMatch(server, /pcmSourceSubscribed/);
+  assert.doesNotMatch(server, /setTimeout\(\(\) => \{\s*const device = 'pcm\/indoor-sky\/audio'/);
   assert.doesNotMatch(server, /for \(const device of pcmDevices\) updatePcmSource/);
   assert.match(page, /togglePcmSource/);
   assert.match(visualizer, /type:'pcm_source_enable'/);
