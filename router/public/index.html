@@ -307,21 +307,23 @@ function renderOSCPorts() {
   const table = document.getElementById('osc-ports-table');
   while (table.rows.length > 1) table.deleteRow(1);
 
-  const inputRow = table.insertRow();
-  inputRow.innerHTML = `
-    <td>into router</td>
-    <td>adrian-pi:5005</td>
-    <td><span class="neutral">ALWAYS ON</span></td>
-    <td class="dim">OSC senders → router</td>
-  `;
-
-  const outputRow = table.insertRow();
   const unavailableClass = OSC_UDP_AVAILABLE === false ? ' class="dim"' : '';
   const state = OSC_UDP_AVAILABLE === null
     ? '<span class="neutral">CHECKING</span>'
     : OSC_UDP_AVAILABLE
       ? '<span class="neutral">ALWAYS ON</span>'
       : '<span class="neutral">DISABLED</span>';
+  const inputRow = table.insertRow();
+  inputRow.innerHTML = `
+    <td${unavailableClass}>into router</td>
+    <td${unavailableClass}>${location.hostname}:5005</td>
+    <td>${state}</td>
+    <td class="dim">${OSC_UDP_AVAILABLE === false
+      ? 'Connect on LAN or VPN to enable'
+      : 'OSC senders → router'}</td>
+  `;
+
+  const outputRow = table.insertRow();
   outputRow.innerHTML = `
     <td${unavailableClass}>out to this machine</td>
     <td${unavailableClass}>${MY_IP || 'this client'}:9000</td>

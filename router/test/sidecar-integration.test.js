@@ -36,6 +36,8 @@ test('OSC UDP output is automatic for direct clients and disabled through Cloudf
   assert.doesNotMatch(server, /data\.type === 'osc_toggle_receive'/);
   assert.match(page, /ALWAYS ON/);
   assert.match(page, /DISABLED/);
+  assert.match(page, /\$\{location\.hostname\}:5005/);
+  assert.match(page, /OSC senders → router/);
   assert.match(page, /router → OSC senders/);
   assert.match(page, /Connect on LAN or VPN to enable/);
   assert.doesNotMatch(page, /toggleOSCReceive/);
