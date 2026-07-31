@@ -409,6 +409,12 @@ function sourceInfo(ip, name) {
 function registerSource(ip, name) {
   if (!ip || typeof name !== 'string' || !name) return;
   const previous = sourceNames.get(ip);
+  // A named device may receive a new DHCP address. Treat the newest scalar
+  // sender as authoritative so its separately controlled PCM endpoint follows
+  // the device instead of remaining pinned to a stale address.
+  for (const [knownIp, knownName] of sourceNames) {
+    if (knownIp !== ip && knownName === name) sourceNames.delete(knownIp);
+  }
   sourceNames.set(ip, name);
   const oldDevice = `pcm/${ip}/audio`;
   const newDevice = `pcm/${name}/audio`;
@@ -432,6 +438,15 @@ function registerSource(ip, name) {
       pcmAnalyzers.set(newDevice, pcmAnalyzers.get(oldDevice));
       pcmAnalyzers.delete(oldDevice);
     }
+  }
+  const namedCapability = audioCapabilities.get(newDevice);
+  if (namedCapability && namedCapability.source !== ip) {
+    namedCapability.source = ip;
+    namedCapability.name = name;
+    namedCapability.available = false;
+    const staleStream = pcmStreams.get(newDevice);
+    if (staleStream?.source !== ip) pcmStreams.delete(newDevice);
+    broadcast({ ...namedCapability });
   }
   if (previous !== name) broadcast(sourceInfo(ip, name));
 }

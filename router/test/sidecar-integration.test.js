@@ -60,3 +60,11 @@ test('PCM source power is latched separately from browser delivery subscriptions
   assert.match(visualizer, /type:'pcm_source_enable'/);
   assert.match(visualizer, /type:'pcm_subscribe'/);
 });
+
+test('PCM capability follows a named sensor when its DHCP address changes', () => {
+  const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  assert.match(server, /knownIp !== ip && knownName === name/);
+  assert.match(server, /namedCapability\.source = ip/);
+  assert.match(server, /namedCapability\.available = false/);
+  assert.match(server, /staleStream\?\.source !== ip/);
+});
