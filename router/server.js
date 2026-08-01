@@ -730,6 +730,12 @@ function handleIndoorScalarPacket(packet, source) {
       packet.readFloatLE(offset + 12)
     ]);
   }
+  const timestampToleranceUs = 2e6;
+  if (streams.some(stream => stream.samples.some(sample =>
+    Math.abs(Number(sample[1]) - sendTimeUs) > timestampToleranceUs))) {
+    console.warn('Indoor USB scalar frame rejected: sample timestamp outside packet window');
+    return;
+  }
   const populated = streams.filter(stream => stream.samples.length);
   if (!populated.length) return;
   lastIndoorUsbScalarAt = Date.now();

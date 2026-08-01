@@ -11,12 +11,16 @@ class ResidentStreamRegistry {
     trackerOptions = {},
     interpolationFor = () => 'linear',
     staleAfterSeconds = 300,
+    timestampDiscontinuitySeconds = 10,
     createBuffer = options => new StreamBuffer(options),
     createAnalyzer = options => new ResidentAnalyzer(options),
     createTracker = options => new VoiceTracker(options),
   } = {}) {
     if (typeof interpolationFor !== 'function') throw new TypeError('interpolationFor must be a function');
     if (!(staleAfterSeconds > 0)) throw new RangeError('staleAfterSeconds must be greater than zero');
+    if (!(timestampDiscontinuitySeconds > 0)) {
+      throw new RangeError('timestampDiscontinuitySeconds must be greater than zero');
+    }
 
     Object.assign(this, {
       bufferOptions,
@@ -24,6 +28,7 @@ class ResidentStreamRegistry {
       trackerOptions,
       interpolationFor,
       staleAfterUs: staleAfterSeconds * 1e6,
+      timestampDiscontinuityUs: timestampDiscontinuitySeconds * 1e6,
       createBuffer,
       createAnalyzer,
       createTracker,
@@ -47,7 +52,7 @@ class ResidentStreamRegistry {
     receivedAtUs = Number(receivedAtUs);
     if (!Number.isFinite(timestampUs) || !Number.isFinite(value)) return false;
 
-    const entry = this.#entry(streamId);
+    const entry = this.#entryForTimestamp(streamId, timestampUs, receivedAtUs);
     entry.buffer.push(timestampUs, value, sequence);
     if (timestampUs >= (entry.lastTimestampUs ?? -Infinity)) entry.lastValue = value;
     entry.lastTimestampUs = Math.max(entry.lastTimestampUs ?? -Infinity, timestampUs);
@@ -63,10 +68,10 @@ class ResidentStreamRegistry {
       && Number.isFinite(Number(sample[2])));
     if (finite.length === 0) return 0;
 
-    const entry = this.#entry(streamId);
-    entry.buffer.pushBatch(finite);
     const latest = finite.reduce((candidate, sample) =>
       Number(sample[1]) >= Number(candidate[1]) ? sample : candidate);
+    let entry = this.#entryForTimestamp(streamId, Number(latest[1]), receivedAtUs);
+    entry.buffer.pushBatch(finite);
     if (Number(latest[1]) >= (entry.lastTimestampUs ?? -Infinity)) {
       entry.lastValue = Number(latest[2]);
     }
@@ -127,6 +132,22 @@ class ResidentStreamRegistry {
       this.streams.set(streamId, entry);
     }
     return entry;
+  }
+
+  #entryForTimestamp(streamId, timestampUs, receivedAtUs) {
+    const existing = this.streams.get(streamId);
+    if (!existing || !Number.isFinite(existing.lastTimestampUs)) return this.#entry(streamId);
+    const receivedGapUs = Number.isFinite(receivedAtUs) && Number.isFinite(existing.lastReceivedAtUs)
+      ? Math.max(0, receivedAtUs - existing.lastReceivedAtUs)
+      : 0;
+    const allowedGapUs = Math.max(this.timestampDiscontinuityUs, receivedGapUs * 4);
+    if (Math.abs(timestampUs - existing.lastTimestampUs) <= allowedGapUs) return existing;
+
+    // A device reboot changes its uptime origin; a malformed transport frame
+    // can produce an impossible future timestamp. Either way, begin a clean
+    // analysis epoch instead of leaving one outlier to poison the ring buffer.
+    this.streams.delete(streamId);
+    return this.#entry(streamId);
   }
 
   #analyze(streamId, entry) {

@@ -68,3 +68,9 @@ test('PCM capability follows a named sensor when its DHCP address changes', () =
   assert.match(server, /namedCapability\.available = false/);
   assert.match(server, /staleStream\?\.source !== ip/);
 });
+
+test('indoor USB scalar frames reject samples outside their packet time window', () => {
+  const server = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  assert.match(server, /const timestampToleranceUs = 2e6/);
+  assert.match(server, /sample timestamp outside packet window/);
+});

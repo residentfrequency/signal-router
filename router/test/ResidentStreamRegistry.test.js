@@ -109,6 +109,18 @@ test('ingests timestamped router batches', () => {
   assert.equal(registry.snapshot('osc/electric-sky/temperature').value, 21);
 });
 
+test('recovers when one malformed batch jumps to an impossible timestamp', () => {
+  const { registry } = fakeRegistry();
+  registry.ingestBatch('osc/indoor-sky/temperature', [[1, 5_000_000, 21]], 10_000_000);
+  registry.ingestBatch('osc/indoor-sky/temperature', [[2, 18_000_000_000_000_000_000, -1e9]], 11_000_000);
+  registry.ingestBatch('osc/indoor-sky/temperature', [[3, 5_020_000, 22]], 12_000_000);
+
+  const snapshot = registry.snapshot('osc/indoor-sky/temperature');
+  assert.equal(snapshot.sampleCount, 1);
+  assert.equal(snapshot.lastTimestampUs, 5_020_000);
+  assert.equal(snapshot.value, 22);
+});
+
 test('removes streams after the configured inactive interval', () => {
   const { registry } = fakeRegistry({ staleAfterSeconds: 5 });
   registry.ingest('osc/test', 1_000_000, 1, null, 1_000_000);
