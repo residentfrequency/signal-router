@@ -615,6 +615,11 @@
 
       if (data.type === 'client_info') MY_IP = data.ip;
 
+      // MIDI reaches this browser through WebMIDI after the router page applies
+      // its CH/CC assignment. Do not also consume the router's raw network MIDI,
+      // which would bypass that assignment and process every remote controller.
+      if (data.type === 'midi') return;
+
       const key = signalKeyFor(data);
       if (!key) return;
 

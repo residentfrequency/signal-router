@@ -74,3 +74,10 @@ test('indoor USB scalar frames reject samples outside their packet time window',
   assert.match(server, /const timestampToleranceUs = 2e6/);
   assert.match(server, /sample timestamp outside packet window/);
 });
+
+test('MIDI CC assignments are not bypassed by raw local or moire pass-through', () => {
+  const page = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
+  const moire = fs.readFileSync(path.join(__dirname, '../../moire/index.html'), 'utf8');
+  assert.match(page, /data\.raw && data\.msgType !== 'cc'/);
+  assert.match(moire, /if \(data\.type === 'midi'\) return/);
+});

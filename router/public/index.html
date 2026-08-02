@@ -737,7 +737,9 @@ function handleIncomingSignal(data) {
   if (data.type === 'midi') {
     ensureRow(data);
     updateRow(data);
-    if (data.raw) sendMidi(data.raw);
+    // CC output is produced by updateRow through the configured CH/CC
+    // assignment. Passing the original bytes too would bypass that mapping.
+    if (data.raw && data.msgType !== 'cc') sendMidi(data.raw);
   }
 
   if (data.type === 'audio') {
